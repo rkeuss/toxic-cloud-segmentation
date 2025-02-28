@@ -1,0 +1,23 @@
+Account gusr94197 has been created. This account is linked to login rkeuss.
+The project space is linked to the account and is named prjs1392.
+The project space can be reached by the following path: cd /projects/0/prjs1392
+Note: Project Spaces are NOT backed up. Owners and users of project spaces must ensure their data safety themselves.
+Please ensure that you review the documentation regarding project space storage.
+https://servicedesk.surf.nl/wiki/display/WIKI/Snellius+filesystems#Snelliusfilesystems-Theprojectfilesystem
+
+
+Following information is from https://uvadlc-notebooks.readthedocs.io/en/latest/tutorial_notebooks/tutorial1/Lisa_Cluster.html
+You can login to Snellius’s login nodes using a secure shell (SSH):
+ssh -X rkeuss@snellius.surf.nl
+(Replace scur___ by your username)
+
+A copy operation from Snellius to your local computer, started from your local computer, could look as follows:
+rsync -av scur___@snellius.surf.nl:~/source destination
+(Replace scur___ by your username, source by the directory/file on Snellius you want to copy on your local machine,
+and destination by the directory/file it should be copied to. Note that source is referenced from your home directory
+on Snellius.)
+
+If you want to copy a file from your local computer to Snellius, use:
+rsync -av source scur___@snellius.surf.nl:~/destination
+(Replace source with the directory/file on your local computer you want to copy to Snellius, and destination by the
+directory/file it should be copied to.)
