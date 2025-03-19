@@ -1,0 +1,1 @@
+{"boxes": {"x": 0, "y": 0, "w": 23, "h": 27}, "relative_boxes": {"x": 0, "y": 0, "w": 23, "h": 27}, "image_width": 900, "image_height": 900, "cropped_width": 900, "cropped_height": 900, "x_image": 0, "y_image": 0, "mask_file_path": "zdhFzpAgrHM-0/28/zdhFzpAgrHM-0-28-1", "crop_file_name": "crop.png", "mask_file_name": "mask.png", "bbox_file_name": "crop_with_bbox.png"}

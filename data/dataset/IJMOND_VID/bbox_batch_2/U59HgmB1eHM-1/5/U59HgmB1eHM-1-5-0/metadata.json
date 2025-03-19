@@ -1,0 +1,1 @@
+{"boxes": {"x": 532, "y": 16, "w": 47, "h": 20}, "relative_boxes": {"x": 532, "y": 16, "w": 47, "h": 20}, "image_width": 900, "image_height": 900, "cropped_width": 900, "cropped_height": 900, "x_image": 0, "y_image": 0, "mask_file_path": "U59HgmB1eHM-1/5/U59HgmB1eHM-1-5-0", "crop_file_name": "crop.png", "mask_file_name": "mask.png", "bbox_file_name": "crop_with_bbox.png"}

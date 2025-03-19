@@ -1,0 +1,1 @@
+{"boxes": {"x": 310, "y": 551, "w": 12, "h": 11}, "relative_boxes": {"x": 310, "y": 551, "w": 12, "h": 11}, "image_width": 900, "image_height": 900, "cropped_width": 900, "cropped_height": 900, "x_image": 0, "y_image": 0, "mask_file_path": "ZnAgM2CIACw-1/29/ZnAgM2CIACw-1-29-1", "crop_file_name": "crop.png", "mask_file_name": "mask.png", "bbox_file_name": "crop_with_bbox.png"}

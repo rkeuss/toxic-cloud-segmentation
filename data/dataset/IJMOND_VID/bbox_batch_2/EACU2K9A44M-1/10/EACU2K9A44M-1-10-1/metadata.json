@@ -1,0 +1,1 @@
+{"boxes": {"x": 472, "y": 108, "w": 38, "h": 33}, "relative_boxes": {"x": 472, "y": 108, "w": 38, "h": 33}, "image_width": 600, "image_height": 600, "cropped_width": 600, "cropped_height": 600, "x_image": 0, "y_image": 0, "mask_file_path": "EACU2K9A44M-1/10/EACU2K9A44M-1-10-1", "crop_file_name": "crop.png", "mask_file_name": "mask.png", "bbox_file_name": "crop_with_bbox.png"}

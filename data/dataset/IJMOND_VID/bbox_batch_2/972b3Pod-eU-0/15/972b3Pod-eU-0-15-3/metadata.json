@@ -1,0 +1,1 @@
+{"boxes": {"x": 140, "y": 664, "w": 255, "h": 138}, "relative_boxes": {"x": 140, "y": 664, "w": 255, "h": 138}, "image_width": 900, "image_height": 900, "cropped_width": 900, "cropped_height": 900, "x_image": 0, "y_image": 0, "mask_file_path": "972b3Pod-eU-0/15/972b3Pod-eU-0-15-3", "crop_file_name": "crop.png", "mask_file_name": "mask.png", "bbox_file_name": "crop_with_bbox.png"}
