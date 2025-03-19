@@ -1,0 +1,1 @@
+{"boxes": {"x": 447, "y": 326, "w": 103, "h": 85}, "relative_boxes": {"x": 447, "y": 326, "w": 103, "h": 85}, "image_width": 600, "image_height": 600, "cropped_width": 600, "cropped_height": 600, "x_image": 0, "y_image": 0, "mask_file_path": "gLXdasSk8JU-3/16/gLXdasSk8JU-3-16-1", "crop_file_name": "crop.png", "mask_file_name": "mask.png", "bbox_file_name": "crop_with_bbox.png"}

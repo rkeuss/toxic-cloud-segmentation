@@ -1,0 +1,1 @@
+{"boxes": {"x": 515, "y": 241, "w": 85, "h": 107}, "relative_boxes": {"x": 515, "y": 241, "w": 85, "h": 107}, "image_width": 600, "image_height": 600, "cropped_width": 600, "cropped_height": 600, "x_image": 0, "y_image": 0, "mask_file_path": "fD_2Qr7HN4c-3/32/fD_2Qr7HN4c-3-32-1", "crop_file_name": "crop.png", "mask_file_name": "mask.png", "bbox_file_name": "crop_with_bbox.png"}

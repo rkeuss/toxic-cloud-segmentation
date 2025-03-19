@@ -1,0 +1,1 @@
+{"boxes": {"x": 434, "y": 191, "w": 37, "h": 45}, "relative_boxes": {"x": 434, "y": 191, "w": 37, "h": 45}, "image_width": 900, "image_height": 900, "cropped_width": 900, "cropped_height": 900, "x_image": 0, "y_image": 0, "mask_file_path": "NDZ018aVcCE-0/14/NDZ018aVcCE-0-14-1", "crop_file_name": "crop.png", "mask_file_name": "mask.png", "bbox_file_name": "crop_with_bbox.png"}

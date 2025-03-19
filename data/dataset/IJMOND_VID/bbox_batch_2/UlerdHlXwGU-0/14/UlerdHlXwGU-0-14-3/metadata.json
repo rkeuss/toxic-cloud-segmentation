@@ -1,0 +1,1 @@
+{"boxes": {"x": 866, "y": 25, "w": 19, "h": 23}, "relative_boxes": {"x": 866, "y": 25, "w": 19, "h": 23}, "image_width": 900, "image_height": 900, "cropped_width": 900, "cropped_height": 900, "x_image": 0, "y_image": 0, "mask_file_path": "UlerdHlXwGU-0/14/UlerdHlXwGU-0-14-3", "crop_file_name": "crop.png", "mask_file_name": "mask.png", "bbox_file_name": "crop_with_bbox.png"}

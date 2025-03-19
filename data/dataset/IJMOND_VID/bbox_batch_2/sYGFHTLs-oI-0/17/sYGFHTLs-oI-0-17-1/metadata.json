@@ -1,0 +1,1 @@
+{"boxes": {"x": 79, "y": 322, "w": 47, "h": 40}, "relative_boxes": {"x": 79, "y": 322, "w": 47, "h": 40}, "image_width": 900, "image_height": 900, "cropped_width": 900, "cropped_height": 900, "x_image": 0, "y_image": 0, "mask_file_path": "sYGFHTLs-oI-0/17/sYGFHTLs-oI-0-17-1", "crop_file_name": "crop.png", "mask_file_name": "mask.png", "bbox_file_name": "crop_with_bbox.png"}

@@ -1,0 +1,1 @@
+{"boxes": {"x": 243, "y": 246, "w": 28, "h": 16}, "relative_boxes": {"x": 243, "y": 246, "w": 28, "h": 16}, "image_width": 600, "image_height": 600, "cropped_width": 600, "cropped_height": 600, "x_image": 0, "y_image": 0, "mask_file_path": "5CiaQ_ppyHo-3/25/5CiaQ_ppyHo-3-25-1", "crop_file_name": "crop.png", "mask_file_name": "mask.png", "bbox_file_name": "crop_with_bbox.png"}

@@ -1,0 +1,1 @@
+{"boxes": {"x": 596, "y": 678, "w": 65, "h": 51}, "relative_boxes": {"x": 596, "y": 678, "w": 65, "h": 51}, "image_width": 900, "image_height": 900, "cropped_width": 900, "cropped_height": 900, "x_image": 0, "y_image": 0, "mask_file_path": "5ay369iRsi0-1/30/5ay369iRsi0-1-30-2", "crop_file_name": "crop.png", "mask_file_name": "mask.png", "bbox_file_name": "crop_with_bbox.png"}

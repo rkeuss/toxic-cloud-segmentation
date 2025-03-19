@@ -1,0 +1,1 @@
+{"boxes": {"x": 331, "y": 234, "w": 43, "h": 87}, "relative_boxes": {"x": 331, "y": 234, "w": 43, "h": 87}, "image_width": 600, "image_height": 600, "cropped_width": 600, "cropped_height": 600, "x_image": 0, "y_image": 0, "mask_file_path": "Dt1bwf32iHI-2/11/Dt1bwf32iHI-2-11-0", "crop_file_name": "crop.png", "mask_file_name": "mask.png", "bbox_file_name": "crop_with_bbox.png"}

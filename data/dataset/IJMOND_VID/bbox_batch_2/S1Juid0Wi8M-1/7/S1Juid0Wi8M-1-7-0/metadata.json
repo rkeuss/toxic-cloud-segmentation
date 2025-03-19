@@ -1,0 +1,1 @@
+{"boxes": {"x": 369, "y": 182, "w": 19, "h": 29}, "relative_boxes": {"x": 369, "y": 182, "w": 19, "h": 29}, "image_width": 600, "image_height": 600, "cropped_width": 600, "cropped_height": 600, "x_image": 0, "y_image": 0, "mask_file_path": "S1Juid0Wi8M-1/7/S1Juid0Wi8M-1-7-0", "crop_file_name": "crop.png", "mask_file_name": "mask.png", "bbox_file_name": "crop_with_bbox.png"}

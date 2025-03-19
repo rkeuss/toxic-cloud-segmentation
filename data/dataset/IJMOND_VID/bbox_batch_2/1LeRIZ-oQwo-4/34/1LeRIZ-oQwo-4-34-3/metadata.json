@@ -1,0 +1,1 @@
+{"boxes": {"x": 265, "y": 131, "w": 26, "h": 22}, "relative_boxes": {"x": 265, "y": 131, "w": 26, "h": 22}, "image_width": 600, "image_height": 600, "cropped_width": 600, "cropped_height": 600, "x_image": 0, "y_image": 0, "mask_file_path": "1LeRIZ-oQwo-4/34/1LeRIZ-oQwo-4-34-3", "crop_file_name": "crop.png", "mask_file_name": "mask.png", "bbox_file_name": "crop_with_bbox.png"}

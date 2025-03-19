@@ -1,0 +1,1 @@
+{"boxes": {"x": 0, "y": 0, "w": 500, "h": 772}, "relative_boxes": {"x": 0, "y": 0, "w": 500, "h": 772}, "image_width": 900, "image_height": 900, "cropped_width": 900, "cropped_height": 900, "x_image": 0, "y_image": 0, "mask_file_path": "y-La7yRYSOQ-0/36/y-La7yRYSOQ-0-36-3", "crop_file_name": "crop.png", "mask_file_name": "mask.png", "bbox_file_name": "crop_with_bbox.png"}
