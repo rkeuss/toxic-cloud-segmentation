@@ -46,7 +46,7 @@ class COCOSegmentationDataset(Dataset):
         if isinstance(image, np.ndarray):
             image = torch.tensor(image, dtype=torch.float32).permute(2, 0, 1)  # Convert (H, W, C) → (C, H, W)
 
-        mask = torch.tensor(mask, dtype=torch.long)
+        mask = torch.from_numpy(mask).long()
 
         _, H, W = image.shape  # Get current image dimensions
         new_H = ((H + 15) // 16) * 16  # Round up to nearest multiple of 16
