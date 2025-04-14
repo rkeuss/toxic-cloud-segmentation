@@ -6,11 +6,13 @@ import requests
 import cv2
 from pycocotools.coco import COCO
 import ijmond_segmentation_dataset as ijmond_seg
+import shutil
 
 # IJmond-SEG dataset (labeled)
 def load_ijmond_segmented():
-    json_path_annotations = "data/dataset/IJMOND_SEG/test/_annotations.coco.json"
-    json_path_images = "data/dataset/IJMOND_SEG/test/"
+    # TODO: maybe filter on only high opacity smoke?
+    json_path_annotations = "data/dataset/IJMOND_SEG/_annotations.coco.json"
+    json_path_images = "data/dataset/IJMOND_SEG/"
     coco_data = COCO(json_path_annotations)
     imgIds = coco_data.getImgIds()
     ijmond_seg_dataset = ijmond_seg.COCOSegmentationDataset(coco_data, imgIds, json_path_images)
@@ -18,15 +20,29 @@ def load_ijmond_segmented():
 
 # IJmond-VID dataset (unlabeled)
 def load_ijmond_video():
-    base_path = "data/dataset/IJMOND_VID"
-    image_files = []
+    # First use download_videos.py and preprocessing.py from ijmond-camera-ai-main project to get all frames
+    # Now, let's put those frames in a single directory
+    base_dir = '/Users/rkeuss/PycharmProjects/toxic-cloud-segmentation/data/IJMOND_VID/frames'
+    for folder in os.listdir(base_dir):
+        folder_path = os.path.join(base_dir, folder)
+        if os.path.isdir(folder_path):
+            for filename in os.listdir(folder_path):
+                if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
+                    # Create new unique filename to avoid overwriting
+                    new_filename = f"{folder}_{filename}"
+                    src_path = os.path.join(folder_path, filename)
+                    dst_path = os.path.join(base_dir, new_filename)
 
-    for root, dirs, files in os.walk(base_path):
+                    shutil.move(src_path, dst_path)
+            # Optional: remove the now-empty subdirectory
+            os.rmdir(folder_path)
+
+    image_files = []
+    for root, dirs, files in os.walk(base_dir):
         # Check if the current directory is a frame directory (numeric folder name)
         if os.path.basename(root).isdigit():
             for file in files:
-                if file.endswith(".png"):
-                    image_files.append(os.path.join(root, file))
+                image_files.append(os.path.join(root, file))
 
     ijmond_vid_dataset = pd.DataFrame(image_files, columns=["image_path"])
     return ijmond_vid_dataset
@@ -92,6 +108,8 @@ def main():
     ijmond_vid = load_ijmond_video()
     rise = load_rise()
     unlabeled_data = combine_unlabelled_data(ijmond_vid, rise)
+
+    return ijmond_seg, unlabeled_data
 
 if __name__ == "__main__":
     main(sys.argv)
