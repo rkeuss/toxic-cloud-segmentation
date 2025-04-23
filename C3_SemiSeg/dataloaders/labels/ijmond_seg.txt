@@ -1,0 +1,5 @@
+name                     id    trainId   category            catId   hasInstances   ignoreInEval   color
+-----------------------------------------------------------------------------------------------------------------------
+smoke                  ,  0 ,        0 , 'smoke'          , 0       , False        , False        , (128,128,128) ),
+high-opacity-smoke     ,  1 ,        1 , 'smoke'          , 0       , False        , False        , (255,  0,  0) ),
+low-opacity-smoke      ,  2 ,        2 , 'smoke'          , 0       , False        , False        , (  0,255,  0) ),
