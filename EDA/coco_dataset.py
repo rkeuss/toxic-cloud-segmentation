@@ -21,9 +21,6 @@ class COCOSegmentationDataset(Dataset):
 
         img_path = os.path.join(self.img_dir, img_info['file_name'])
         image = cv2.imread(img_path)  # OpenCV loads images as (H, W, C)
-        if image is None:
-            print(f"❌ ERROR: Cannot read image {img_path}")
-
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
         # Load mask
