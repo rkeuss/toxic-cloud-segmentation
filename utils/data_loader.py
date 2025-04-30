@@ -7,6 +7,7 @@ from torchvision import transforms
 from torch.utils.data import Dataset, DataLoader
 import torch.nn.functional as F
 from PIL import Image
+import random
 
 
 class IJmondSegDataset(Dataset):
@@ -73,26 +74,40 @@ class IJmondSegDataset(Dataset):
 
         return image, mask
 
+
 def get_ijmond_seg_dataloader(image_dir, split, batch_size, shuffle=True):
     """
     Load the COCO dataset for the specified split (train or test).
     """
-    coco_annotations = f"{image_dir}/splits/{split}.json"  # Use the split JSON file
+    coco_annotations = f"{image_dir}/splits/{split}.json"
     coco = COCO(coco_annotations)
     imgIds = coco.getImgIds()
-    transform = transforms.Compose([  # TODO: edit transformations
-        transforms.Resize((256, 256)),
-        transforms.ToTensor(),
-    ])
+
+    if split == 'train':
+        train_transform = transforms.Compose([
+            transforms.ToPILImage(),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomRotation(10),
+            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+            transforms.ToTensor(),
+        ])
+        transform = train_transform
+    else:  # For test/validation, no augmentation
+        transform = transforms.Compose([
+            transforms.ToPILImage(),
+            transforms.ToTensor(),
+        ])
+
     dataset = IJmondSegDataset(coco, imgIds, image_dir, transform=transform)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
     return dataloader
 
 
 class UnlabelledDataset(Dataset):
-    def __init__(self, image_dirs, transform=None):
+    def __init__(self, image_dirs, weak_transform=None, strong_transform=None):
         self.image_dirs = image_dirs
-        self.transform = transform
+        self.weak_transform = weak_transform
+        self.strong_transform = strong_transform
         self.image_list = []
         self.pseudo_labels = [None] * len(self.image_list)  # Placeholder for pseudo-labels
 
@@ -107,21 +122,38 @@ class UnlabelledDataset(Dataset):
         img_path = self.image_list[idx]
         image = Image.open(img_path).convert("RGB")
 
-        if self.transform:
-            image = self.transform(image)
+        if self.weak_transform:
+            weak_image = self.weak_transform(image)
+        else:
+            weak_image = transforms.ToTensor()(image)
+
+        if self.strong_transform:
+            strong_image = self.strong_transform(image)
+        else:
+            strong_image = transforms.ToTensor()(image)
 
         pseudo_label = self.pseudo_labels[idx]  # Retrieve pseudo-label if available
-        return image, pseudo_label
+        return weak_image, strong_image, pseudo_label
 
     def update_pseudo_labels(self, new_pseudo_labels):
         """Update pseudo-labels dynamically."""
         self.pseudo_labels = new_pseudo_labels
 
+
 def get_unlabelled_dataloader(image_dirs, batch_size, shuffle=True):
-    transform = transforms.Compose([  # TODO: edit transformations
+    weak_transform = transforms.Compose([
         transforms.Resize((256, 256)),
         transforms.ToTensor(),
     ])
-    dataset = UnlabelledDataset(image_dirs, transform=transform)
+
+    strong_transform = transforms.Compose([
+        transforms.Resize((256, 256)),
+        transforms.RandomHorizontalFlip(),
+        transforms.RandomRotation(15),
+        transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.2),
+        transforms.ToTensor(),
+    ])
+
+    dataset = UnlabelledDataset(image_dirs, weak_transform=weak_transform, strong_transform=strong_transform)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
     return dataloader

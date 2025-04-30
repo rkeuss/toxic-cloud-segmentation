@@ -42,14 +42,15 @@ def evaluate_model(model, dataloader):
 
 
 if __name__ == "__main__":
-    test_dataloader = get_ijmond_seg_dataloader('data/IJMOND_SEG', split='test', batch_size=8, shuffle=False)
+    supervised_loss = 'cross_entropy'
+    contrastive_loss = 'pixel'
 
-    num_classes = 3
+    num_classes = 2
+    test_dataloader = get_ijmond_seg_dataloader('data/IJMOND_SEG', split='test', batch_size=8, shuffle=False)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = resnet101_deeplabv3plus_imagenet(num_classes=num_classes, pretrained=False)
-
     try:
-        model.load_state_dict(torch.load('models/best_model.pth', map_location=device))
+        model.load_state_dict(torch.load(f'models/best_model_{supervised_loss}_{contrastive_loss}.pth', map_location=device))
     except FileNotFoundError:
         print("Error: Best model file not found. Please ensure 'models/best_model.pth' exists.")
         exit(1)
