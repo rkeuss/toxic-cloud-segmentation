@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.optim as optim
 from tqdm import tqdm
 from models import deeplabv3plus
-from utils.data_loader import UnlabelledDataset, get_ijmond_seg_dataloader, get_unlabelled_dataloader, IJmondSegDataset
+from utils import data_loader
 from utils.pseudo_labeling import generate_pseudo_labels
 from utils import losses
 from sklearn.model_selection import KFold
@@ -22,7 +22,7 @@ def train(
     optimizer = optim.Adam(model.parameters(), lr=0.001)
 
     if supervised_loss == 'cross_entropy':
-        criterion = nn.CrossEntropyLoss() # todo check if this is correct or if i need to define it myself in losses.py
+        criterion = nn.CrossEntropyLoss()
     elif supervised_loss == 'dice':
         criterion = losses.DiceLoss()
     else:
@@ -42,12 +42,11 @@ def train(
     else:
         raise ValueError(f"Unsupported contrastive_loss: {contrastive_loss}")
 
-    train_dataloader = get_ijmond_seg_dataloader('data/IJMOND_SEG', split='train', batch_size=batch_size)
-    train_dataset = train_dataloader.dataset
+    train_dataset = data_loader.get_ijmond_seg_dataset('data/IJMOND_SEG', split='train')
     train_dataset_size = len(train_dataset)
 
     # Unlabeled data loader with strong augmentations
-    unlabeled_dataloader = get_unlabelled_dataloader(
+    unlabeled_dataloader = data_loader.get_unlabelled_dataloader(
         ['data/IJMOND_VID/frames', 'data/RISE/frames'],
         batch_size=batch_size,
         shuffle=True
@@ -58,11 +57,12 @@ def train(
     best_model_path = f'models/best_model_{supervised_loss}_{contrastive_loss}.pth'
     best_miou = 0.0
     for fold, (train_idx, val_idx) in enumerate(kf.split(range(train_dataset_size))):
-        train_subset = torch.utils.data.Subset(train_dataset, train_idx)
-        val_subset = torch.utils.data.Subset(train_dataset, val_idx) # todo fix that no augmentation is applied (it is already applied in line 45, is this a problem?
-
-        train_dataloader = torch.utils.data.DataLoader(train_subset, batch_size=batch_size, shuffle=True)
-        val_dataloader = torch.utils.data.DataLoader(val_subset, batch_size=batch_size, shuffle=False)
+        train_dataloader = data_loader.get_ijmond_seg_dataloader_train(
+            train_idx, split='train', batch_size=batch_size, shuffle=True
+        )
+        val_dataloader = data_loader.get_ijmond_seg_dataloader_validation(
+            val_idx, split='train', batch_size=batch_size, shuffle=True
+        )
 
         for epoch in range(num_epochs):
             model.train()

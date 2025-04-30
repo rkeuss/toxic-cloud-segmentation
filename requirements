@@ -5,4 +5,4 @@ Pillow
 opencv-python
 pycocotools
 tqdm
-
+albumentations
