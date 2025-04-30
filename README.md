@@ -2,10 +2,9 @@
 
 Prepare the data
 1. IJmond_SEG: from roboflow in COCO format
-2. IJmond_VID: use the file metadata_ijmond_jan_22_2024.json, first download the videos using the script 
-download_videos.py (in this script only positively labelled videos are selected), then use the script 
-preprocessing.py to extract all frames from the selected videos.
-3. RISE: use the file metadata.json, filter on positive videos and select the first frame.
+2. To get the unlabelled data, run the script load_unlabelled_data.py. This will download the videos and save the 
+frames in the data folder. To get IJmond_VID the file metadata_ijmond_jan_22_2024.json is used and all frames are saved. 
+To get RISE the file metadata.json is used and only the first frame of each video is saved.
 
 Split the IJmond_SEG dataset into train and test sets by running the make_splits.py script.
 
