@@ -13,13 +13,15 @@ from sklearn.metrics import jaccard_score
 #  neighborhood_size, weights in hybrid loss)
 def train(
         num_folds=6, num_epochs=50, batch_size=8, threshold=0.5,
+        learning_rate=0.001, temperature=0.1, neighborhood_size=5,
+        weight_pixel=1.0, weight_local=1.0, weight_directional=1.0,
         supervised_loss='cross_entropy', contrastive_loss='pixel'
 ):
     num_classes = 2
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = deeplabv3plus.resnet101_deeplabv3plus_imagenet(num_classes=num_classes, pretrained=True)
     model = model.to(device)  # Ensure model is on the correct device
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
     if supervised_loss == 'cross_entropy':
         criterion = nn.CrossEntropyLoss()
@@ -29,15 +31,15 @@ def train(
         raise ValueError(f"Unsupported supervised_loss: {supervised_loss}")
 
     if contrastive_loss == 'pixel':
-        contrastive_loss_fn = losses.PixelContrastiveLoss(temperature=0.1)
+        contrastive_loss_fn = losses.PixelContrastiveLoss(temperature=temperature)
     elif contrastive_loss == 'local':
-        contrastive_loss_fn = losses.LocalContrastiveLoss(temperature=0.1, neighborhood_size=5)
+        contrastive_loss_fn = losses.LocalContrastiveLoss(temperature=temperature, neighborhood_size=5)
     elif contrastive_loss == 'directional':
-        contrastive_loss_fn = losses.DirectionalContrastiveLoss(temperature=0.1)
+        contrastive_loss_fn = losses.DirectionalContrastiveLoss(temperature=temperature)
     elif contrastive_loss == 'hybrid':
         contrastive_loss_fn = losses.HybridContrastiveLoss(
-            temperature=0.1, neighborhood_size=5,
-            weight_pixel=1.0, weight_local=1.0, weight_directional=1.0
+            temperature=temperature, neighborhood_size=neighborhood_size,
+            weight_pixel=weight_pixel, weight_local=weight_local, weight_directional=weight_directional
         )
     else:
         raise ValueError(f"Unsupported contrastive_loss: {contrastive_loss}")
