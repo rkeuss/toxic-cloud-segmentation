@@ -21,8 +21,8 @@ def evaluate_model(model, dataloader):
 
     with torch.no_grad():
         for images, masks in dataloader:
-            images = images.cuda()
-            masks = masks.cuda()
+            images = images.to(model.device)
+            masks = masks.to(model.device)
 
             outputs = model(images)
             preds = torch.sigmoid(outputs)
@@ -45,8 +45,14 @@ if __name__ == "__main__":
     test_dataloader = get_ijmond_seg_dataloader('data/IJMOND_SEG', split='test', batch_size=8, shuffle=False)
 
     num_classes = 3
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = resnet101_deeplabv3plus_imagenet(num_classes=num_classes, pretrained=False)
-    model.load_state_dict(torch.load('models/best_model.pth'))
-    model = model.cuda()
 
+    try:
+        model.load_state_dict(torch.load('models/best_model.pth', map_location=device))
+    except FileNotFoundError:
+        print("Error: Best model file not found. Please ensure 'models/best_model.pth' exists.")
+        exit(1)
+
+    model = model.to(device)
     evaluate_model(model, test_dataloader)
