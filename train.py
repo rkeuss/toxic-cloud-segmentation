@@ -1,90 +1,140 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from tqdm import tqdm
 from models import deeplabv3plus
-from utils.data_loader import UnlabelledDataset, get_ijmond_seg_dataloader, get_unlabelled_dataloader
+from utils import data_loader
 from utils.pseudo_labeling import generate_pseudo_labels
-from utils.contrastive_loss import PixelContrastiveLoss
+from utils import losses
 from sklearn.model_selection import KFold
+from sklearn.metrics import jaccard_score
 
-
-def train():
-    num_classes = 3
-    num_folds = 6
+# TODO: hyperparameter tuning (num_folds, num_epochs, batch_size, threshold, learning rate (lr), temperature,
+#  neighborhood_size, weights in hybrid loss)
+def train(
+        num_folds=6, num_epochs=50, batch_size=8, threshold=0.5,
+        learning_rate=0.001, temperature=0.1, neighborhood_size=5,
+        weight_pixel=1.0, weight_local=1.0, weight_directional=1.0,
+        supervised_loss='cross_entropy', contrastive_loss='pixel'
+):
+    num_classes = 2
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = deeplabv3plus.resnet101_deeplabv3plus_imagenet(num_classes=num_classes, pretrained=True)
-    criterion = nn.CrossEntropyLoss()  # TODO: compare with Dice loss
-    contrastive_loss = PixelContrastiveLoss()  # TODO: compare with other contrastive losses (directional/local/hybrid)
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    model = model.to(device)  # Ensure model is on the correct device
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
-    train_dataloader = get_ijmond_seg_dataloader('data/IJMOND_SEG', split='train', batch_size=8)
-    train_dataset = train_dataloader.dataset
+    if supervised_loss == 'cross_entropy':
+        criterion = nn.CrossEntropyLoss()
+    elif supervised_loss == 'dice':
+        criterion = losses.DiceLoss()
+    else:
+        raise ValueError(f"Unsupported supervised_loss: {supervised_loss}")
+
+    if contrastive_loss == 'pixel':
+        contrastive_loss_fn = losses.PixelContrastiveLoss(temperature=temperature)
+    elif contrastive_loss == 'local':
+        contrastive_loss_fn = losses.LocalContrastiveLoss(temperature=temperature, neighborhood_size=5)
+    elif contrastive_loss == 'directional':
+        contrastive_loss_fn = losses.DirectionalContrastiveLoss(temperature=temperature)
+    elif contrastive_loss == 'hybrid':
+        contrastive_loss_fn = losses.HybridContrastiveLoss(
+            temperature=temperature, neighborhood_size=neighborhood_size,
+            weight_pixel=weight_pixel, weight_local=weight_local, weight_directional=weight_directional
+        )
+    else:
+        raise ValueError(f"Unsupported contrastive_loss: {contrastive_loss}")
+
+    train_dataset = data_loader.get_ijmond_seg_dataset('data/IJMOND_SEG', split='train')
     train_dataset_size = len(train_dataset)
 
-    unlabeled_dataset = UnlabelledDataset(['data/IJMOND_VID/frames', 'data/RISE/frames'])
-    unlabeled_dataloader = get_unlabelled_dataloader(
+    # Unlabeled data loader with strong augmentations
+    unlabeled_dataloader = data_loader.get_unlabelled_dataloader(
         ['data/IJMOND_VID/frames', 'data/RISE/frames'],
-        batch_size=8,
+        batch_size=batch_size,
         shuffle=True
     )
+    unlabeled_dataset = unlabeled_dataloader.dataset
 
     kf = KFold(n_splits=num_folds, shuffle=True, random_state=42)
-    best_loss = float('inf')
-    best_model_path = 'models/best_model.pth'
+    best_model_path = f'models/best_model_{supervised_loss}_{contrastive_loss}.pth'
+    best_miou = 0.0
     for fold, (train_idx, val_idx) in enumerate(kf.split(range(train_dataset_size))):
-        train_subset = torch.utils.data.Subset(train_dataset, train_idx)
-        val_subset = torch.utils.data.Subset(train_dataset, val_idx)
+        train_dataloader = data_loader.get_ijmond_seg_dataloader_train(
+            train_idx, split='train', batch_size=batch_size, shuffle=True
+        )
+        val_dataloader = data_loader.get_ijmond_seg_dataloader_validation(
+            val_idx, split='train', batch_size=batch_size, shuffle=True
+        )
 
-        train_dataloader = torch.utils.data.DataLoader(train_subset, batch_size=8, shuffle=True)
-        val_dataloader = torch.utils.data.DataLoader(val_subset, batch_size=8, shuffle=False)
-
-        for epoch in range(50):
+        for epoch in range(num_epochs):
             model.train()
+            epoch_loss = 0  # Track epoch loss
 
-            # Supervised training on labeled data
-            for images, labels in train_dataloader:
+            # Supervised training on labeled data (weak augmentations)
+            for images, labels in tqdm(train_dataloader, desc=f"Epoch {epoch + 1}/{num_epochs} - Supervised"):
+                images, labels = images.to(device), labels.to(device)
                 outputs = model(images)
                 loss = criterion(outputs, labels)
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
+                epoch_loss += loss.item()
+
+            print(f"Epoch {epoch + 1} Supervised Loss: {epoch_loss / len(train_dataloader):.4f}")
 
             # Generate pseudo-labels for unlabeled data
-            pseudo_labels = generate_pseudo_labels(model, unlabeled_dataloader)
-            unlabeled_dataset.update_pseudo_labels(pseudo_labels)
+            try:
+                pseudo_labels = generate_pseudo_labels(
+                    model, unlabeled_dataloader, threshold=threshold, device=device
+                )
+                unlabeled_dataset.update_pseudo_labels(pseudo_labels)
+            except Exception as e:
+                print(f"Error generating pseudo-labels: {e}")
+                continue
 
-            # Semi-supervised training on unlabeled data
-            for images, pseudo_labels in unlabeled_dataloader:
+            # Semi-supervised training on pseudo-labeled data (strong augmentations)
+            for images, pseudo_labels in tqdm(
+                    unlabeled_dataloader, desc=f"Epoch {epoch + 1}/{num_epochs} - Semi-supervised"
+            ):
+                images, pseudo_labels = images.to(device), pseudo_labels.to(device)
                 outputs = model(images)
-                loss = contrastive_loss(outputs, pseudo_labels)
+                loss = contrastive_loss_fn(outputs, pseudo_labels)
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
 
+        # Validation
         model.eval()
         total_loss = 0
+        iou_scores = []
+
         with torch.no_grad():
-            for images, labels in val_dataloader:
+            for images, labels in tqdm(val_dataloader, desc=f"Validation Fold {fold + 1}"):
+                images, labels = images.to(device), labels.to(device)
                 outputs = model(images)
                 loss = criterion(outputs, labels)
                 total_loss += loss.item()
 
-        avg_loss = total_loss / len(val_dataloader)
-        print(f"Fold {fold + 1}, Epoch{epoch + 1} Validation Loss: {avg_loss:.4f}")
+                preds = torch.sigmoid(outputs) > threshold
+                for pred, label in zip(preds, labels):
+                    iou_scores.append(
+                        jaccard_score(
+                            label.cpu().numpy().flatten(),
+                            pred.cpu().numpy().flatten(),
+                            average='binary'
+                        )
+                    )
 
-        if avg_loss < best_loss:
-            best_loss = avg_loss
+        avg_loss = total_loss / len(val_dataloader)
+        avg_iou = sum(iou_scores) / len(iou_scores)
+
+        print(f"Fold {fold + 1}, Epoch {epoch + 1} Validation Loss: {avg_loss:.4f}, mIoU: {avg_iou:.4f}")
+
+        if avg_iou > best_miou:  # Save model based on mIoU
+            best_miou = avg_iou
             torch.save(model.state_dict(), best_model_path)
-            print(f"Best model saved with loss: {best_loss:.4f}")
-            # now: best model in terms of validation loss, todo: best model in terms of mIoU
+            print(f"Best model saved with mIoU: {best_miou:.4f}")
 
 
 if __name__ == "__main__":
-    train()
-
-
-# in test.py
-# test_dataloader = get_ijmond_seg_dataloader('data/IJMOND_SEG', split='test', batch_size=8, shuffle=False)
-# Load the model
-# model.load_state_dict(torch.load('model.pth'))
-# evaluate using Dice similarity coefficient and IoU(/mIoU) metrics
-
+    train(supervised_loss='cross_entropy', contrastive_loss='pixel')

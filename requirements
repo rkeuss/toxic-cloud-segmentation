@@ -5,3 +5,6 @@ Pillow
 opencv-python
 pycocotools
 tqdm
+albumentations
+scikit-learn
+matplotlib

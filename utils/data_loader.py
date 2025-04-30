@@ -3,10 +3,11 @@ import torch
 import numpy as np
 import cv2
 from pycocotools.coco import COCO
-from torchvision import transforms
 from torch.utils.data import Dataset, DataLoader
 import torch.nn.functional as F
 from PIL import Image
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
 
 
 class IJmondSegDataset(Dataset):
@@ -34,8 +35,14 @@ class IJmondSegDataset(Dataset):
         img_info = self.coco.loadImgs(img_id)[0]
 
         img_path = os.path.join(self.img_dir, img_info['file_name'])
-        image = cv2.imread(img_path)  # OpenCV loads images as (H, W, C)
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        try:
+            image = cv2.imread(img_path)
+            if image is None:
+                raise FileNotFoundError(f"Image not found: {img_path}")
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        except Exception as e:
+            print(f"Error loading image {img_path}: {e}")
+            return None
 
         # Load mask
         ann_ids = self.coco.getAnnIds(imgIds=img_id)
@@ -52,35 +59,66 @@ class IJmondSegDataset(Dataset):
             mask = augmented["mask"]
 
         # Ensure PyTorch expects (C, H, W) format
-        if isinstance(image, np.ndarray):
-            image = torch.tensor(image, dtype=torch.float32).permute(2, 0, 1)  # Convert (H, W, C) → (C, H, W)
-
+        image = torch.tensor(image, dtype=torch.float32).permute(2, 0, 1)  # Convert (H, W, C) → (C, H, W)
         mask = torch.from_numpy(mask).long()
 
         _, H, W = image.shape  # Get current image dimensions
         new_H = ((H + 15) // 16) * 16  # Round up to nearest multiple of 16
         new_W = ((W + 15) // 16) * 16
 
-        pad_H = new_H - H
-        pad_W = new_W - W
-
+        pad_H, pad_W = (new_H - H), (new_W - W)
         image = F.pad(image, (0, pad_W, 0, pad_H), mode="constant", value=0)
         mask = F.pad(mask, (0, pad_W, 0, pad_H), mode="constant", value=0)
 
         return image, mask
 
-def get_ijmond_seg_dataloader(image_dir, split, batch_size, shuffle=True):
+
+def get_ijmond_seg_dataset(image_dir, split):
     """
     Load the COCO dataset for the specified split (train or test).
     """
-    coco_annotations = f"{image_dir}/splits/{split}.json"  # Use the split JSON file
+    coco_annotations = f"{image_dir}/splits/{split}.json"
     coco = COCO(coco_annotations)
     imgIds = coco.getImgIds()
-    transform = transforms.Compose([  # TODO: edit transformations
-        transforms.Resize((256, 256)),
-        transforms.ToTensor(),
+    dataset = IJmondSegDataset(coco, imgIds, image_dir, transform=None)
+    return dataset
+
+def get_ijmond_seg_dataloader_train(train_idx, split, batch_size, shuffle=True):
+    image_dir = 'data/IJMOND_SEG'
+    coco_annotations = f"{image_dir}/splits/{split}.json"
+    coco = COCO(coco_annotations)
+    imgIds = coco.getImgIds()
+
+    # Filter imgIds to only include those in train_idx
+    train_imgIds = [imgIds[i] for i in train_idx]
+
+    train_transform = A.Compose([
+        A.HorizontalFlip(p=0.5),
+        A.Rotate(limit=10, p=0.5),
+        A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1, p=0.5),
+        ToTensorV2(),
     ])
-    dataset = IJmondSegDataset(coco, imgIds, image_dir, transform=transform)
+
+    dataset = IJmondSegDataset(coco, train_imgIds, image_dir, transform=train_transform)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
+    return dataloader
+
+def get_ijmond_seg_dataloader_validation(val_idx, split, batch_size, shuffle=True):
+    image_dir = 'data/IJMOND_SEG'
+    coco_annotations = f"{image_dir}/splits/{split}.json"
+    coco = COCO(coco_annotations)
+    imgIds = coco.getImgIds()
+
+    # Filter imgIds to only include those in val_idx
+    val_imgIds = [imgIds[i] for i in val_idx]
+
+    # For test/validation, no augmentation
+    val_transform = A.Compose([
+        A.Resize(256, 256),
+        ToTensorV2(),
+    ])
+
+    dataset = IJmondSegDataset(coco, val_imgIds, image_dir, transform=val_transform)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
     return dataloader
 
@@ -101,10 +139,12 @@ class UnlabelledDataset(Dataset):
 
     def __getitem__(self, idx):
         img_path = self.image_list[idx]
-        image = Image.open(img_path).convert("RGB")
+        image = np.array(Image.open(img_path).convert("RGB"))
 
         if self.transform:
-            image = self.transform(image)
+            image = self.transform(image=image)["image"]
+        else:
+            image = ToTensorV2()(image=image)["image"]
 
         pseudo_label = self.pseudo_labels[idx]  # Retrieve pseudo-label if available
         return image, pseudo_label
@@ -113,11 +153,16 @@ class UnlabelledDataset(Dataset):
         """Update pseudo-labels dynamically."""
         self.pseudo_labels = new_pseudo_labels
 
+
 def get_unlabelled_dataloader(image_dirs, batch_size, shuffle=True):
-    transform = transforms.Compose([  # TODO: edit transformations
-        transforms.Resize((256, 256)),
-        transforms.ToTensor(),
+    strong_transform = A.Compose([
+        A.Resize(256, 256),
+        A.HorizontalFlip(p=0.5),
+        A.Rotate(limit=15, p=0.5),
+        A.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.2, p=0.5),
+        ToTensorV2(),
     ])
-    dataset = UnlabelledDataset(image_dirs, transform=transform)
+
+    dataset = UnlabelledDataset(image_dirs, transform=strong_transform)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
     return dataloader
