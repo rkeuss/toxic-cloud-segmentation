@@ -24,6 +24,11 @@ def generate_pseudo_labels(model, dataloader, threshold=0.5, device='cuda'):
             probs = torch.sigmoid(outputs)  # For binary segmentation
 
             batch_pseudo_labels = (probs > threshold).long()
+
+            if batch_pseudo_labels is None or batch_pseudo_labels.size(0) == 0:
+                print("Warning: No pseudo-labels generated for this batch.")
+                continue
+
             pseudo_labels.extend(batch_pseudo_labels.cpu())
 
     return pseudo_labels
