@@ -34,8 +34,14 @@ class IJmondSegDataset(Dataset):
         img_info = self.coco.loadImgs(img_id)[0]
 
         img_path = os.path.join(self.img_dir, img_info['file_name'])
-        image = cv2.imread(img_path)  # OpenCV loads images as (H, W, C)
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        try:
+            image = cv2.imread(img_path)
+            if image is None:
+                raise FileNotFoundError(f"Image not found: {img_path}")
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        except Exception as e:
+            print(f"Error loading image {img_path}: {e}")
+            return None
 
         # Load mask
         ann_ids = self.coco.getAnnIds(imgIds=img_id)
@@ -61,9 +67,7 @@ class IJmondSegDataset(Dataset):
         new_H = ((H + 15) // 16) * 16  # Round up to nearest multiple of 16
         new_W = ((W + 15) // 16) * 16
 
-        pad_H = new_H - H
-        pad_W = new_W - W
-
+        pad_H, pad_W = (new_H - H), (new_W - W)
         image = F.pad(image, (0, pad_W, 0, pad_H), mode="constant", value=0)
         mask = F.pad(mask, (0, pad_W, 0, pad_H), mode="constant", value=0)
 
