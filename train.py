@@ -153,13 +153,13 @@ def train(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--num_folds", type=int, default=6)
-    parser.add_argument("--num_epochs", type=int, default=50)
-    parser.add_argument("--batch_size", type=int, default=8)
-    parser.add_argument("--threshold", type=float, default=0.5)
-    parser.add_argument("--learning_rate", type=float, default=0.001)
-    parser.add_argument("--temperature", type=float, default=0.1)
-    parser.add_argument("--neighborhood_size", type=int, default=5)
+    parser.add_argument("--num_folds", type=int, default=6) # todo
+    parser.add_argument("--num_epochs", type=int, default=40)
+    parser.add_argument("--batch_size", type=int, default=14)
+    parser.add_argument("--threshold", type=float, default=0.5) # todo
+    parser.add_argument("--learning_rate", type=float, default=0.001) # todo
+    parser.add_argument("--temperature", type=float, default=0.7)
+    parser.add_argument("--neighborhood_size", type=int, default=5) # todo
     parser.add_argument("--weight_pixel", type=float, default=1.0)
     parser.add_argument("--weight_local", type=float, default=1.0)
     parser.add_argument("--weight_directional", type=float, default=1.0)

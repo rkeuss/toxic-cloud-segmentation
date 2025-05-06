@@ -15,8 +15,8 @@ cd /projects/prjs1392/toxic-cloud-segmentation
 mkdir -p logs
 
 NUM_FOLDS=6
-NUM_EPOCHS=50
-BATCH_SIZE=8
+NUM_EPOCHS=40 # same default value as C3-semiseg
+BATCH_SIZE=14 # same default value as C3-semiseg
 THRESHOLD=0.5
 LEARNING_RATE=0.001
 TEMPERATURE=0.7 # for contrastive loss, same default value as C3-semiseg
