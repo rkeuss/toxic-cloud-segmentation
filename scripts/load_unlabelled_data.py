@@ -4,23 +4,25 @@ import pandas as pd
 import json
 import requests
 import cv2
-from pycocotools.coco import COCO
-import ijmond_segmentation_dataset as ijmond_seg
 import shutil
-
-# IJmond-SEG dataset (labeled)
-def load_ijmond_segmented():
-    # TODO: maybe filter on only high opacity smoke?
-    json_path_annotations = "data/dataset/IJMOND_SEG/_annotations.coco.json"
-    json_path_images = "data/dataset/IJMOND_SEG/"
-    coco_data = COCO(json_path_annotations)
-    imgIds = coco_data.getImgIds()
-    ijmond_seg_dataset = ijmond_seg.COCOSegmentationDataset(coco_data, imgIds, json_path_images)
-    return ijmond_seg_dataset
+import subprocess
 
 # IJmond-VID dataset (unlabeled)
 def load_ijmond_video():
-    # First use download_videos.py and preprocessing.py from ijmond-camera-ai-main project to get all frames
+    # Run download_videos.py
+    try:
+        subprocess.run(["python", "utils/download_videos.py"], check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Error running download_videos.py: {e}")
+        return
+
+    # Run preprocessing.py
+    try:
+        subprocess.run(["python", "utils/preprocessing.py"], check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Error running preprocessing.py: {e}")
+        return
+
     # Now, let's put those frames in a single directory
     base_dir = '/Users/rkeuss/PycharmProjects/toxic-cloud-segmentation/data/IJMOND_VID/frames'
     for folder in os.listdir(base_dir):
@@ -98,18 +100,6 @@ def load_rise():
             frame_file_path = os.path.join(output_dir, f"{file_name}_frame.png")
             cv2.imwrite(frame_file_path, frame)
 
-
-def combine_unlabelled_data(ijmond_vid, rise):
-    ...
-    # TODO: think of way to only include frames with smoke (or exclude those without)
-
-def main():
-    ijmond_seg = load_ijmond_segmented()
-    ijmond_vid = load_ijmond_video()
-    rise = load_rise()
-    unlabeled_data = combine_unlabelled_data(ijmond_vid, rise)
-
-    return ijmond_seg, unlabeled_data
-
 if __name__ == "__main__":
-    main(sys.argv)
+    load_ijmond_video()
+    load_rise()

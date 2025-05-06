@@ -12,12 +12,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 try:
-    from torchvision.models import resnet
+    from torchvision.models import resnet, ResNet101_Weights
     from torchvision.models._utils import IntermediateLayerGetter
     from torchvision.models.segmentation.deeplabv3 import ASPP, DeepLabV3, DeepLabHead
 
 except ImportError:
-    resnet = None
+    ResNet101_Weights = None
     IntermediateLayerGetter = None
     ASPP = None
     DeepLabV3 = None
@@ -96,9 +96,11 @@ def _deeplabv3plus(backbone_name, num_classes, output_stride, pretrained_backbon
         replace_stride_with_dilation = [False, False, True]
         aspp_dilate = [6, 12, 18]
 
-    backbone = resnet.__dict__[backbone_name](
-        pretrained=pretrained_backbone,
-        replace_stride_with_dilation=replace_stride_with_dilation)
+    if backbone_name == 'resnet101':
+        weights = ResNet101_Weights.IMAGENET1K_V1 if pretrained_backbone else None
+        backbone = resnet.resnet101(weights=weights, replace_stride_with_dilation=replace_stride_with_dilation)
+    else:
+        raise ValueError(f"Unsupported backbone: {backbone_name}")
 
     inplanes = 2048
     low_level_planes = 256
