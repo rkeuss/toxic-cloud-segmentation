@@ -4,16 +4,17 @@
 #SBATCH --error=logs/test_error_%j.err
 #SBATCH --partition=gpu
 #SBATCH --gres=gpu:1
-#SBATCH --time=01:00:00
+#SBATCH --time=00:30:00
 #SBATCH --mem=16G
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=rosa@keuss.net
 
+module purge
+module load 2022
+module load Python/3.10.4-GCCcore-11.3.0
 
-
-module load Python/3.10.4
-source /projects/prjs1392/toxic-cloud-segmentation/.venv/bin/activate
 cd /projects/prjs1392/toxic-cloud-segmentation
+
 mkdir -p logs
 
 # Customize loss types here if needed

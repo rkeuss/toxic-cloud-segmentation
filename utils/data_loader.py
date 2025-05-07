@@ -129,25 +129,28 @@ class UnlabelledDataset(Dataset):
         self.image_dirs = image_dirs
         self.transform = transform
         self.image_list = []
-        self.pseudo_labels = [None] * len(self.image_list)  # Placeholder for pseudo-labels
 
         for image_dir in image_dirs:
             for img_name in os.listdir(image_dir):
+                if img_name.startswith("._") or img_name.startswith("."):
+                    continue  # Skip hidden/macOS metadata files
                 self.image_list.append(os.path.join(image_dir, img_name))
+
+        self.pseudo_labels = [None] * len(self.image_list)  # Placeholder for pseudo-labels
 
     def __len__(self):
         return len(self.image_list)
 
     def __getitem__(self, idx):
         img_path = self.image_list[idx]
-        image = np.array(Image.open(img_path).convert("RGB"))
+        try:
+            image = np.array(Image.open(img_path).convert("RGB"))
+        except Exception as e:
+            raise RuntimeError(f"Failed to load image {img_path}: {e}")
 
-        if self.transform:
-            image = self.transform(image=image)["image"]
-        else:
-            image = ToTensorV2()(image=image)["image"]
-
+        image = self.transform(image=image)["image"] if self.transform else ToTensorV2()(image=image)["image"]
         pseudo_label = self.pseudo_labels[idx]  # Retrieve pseudo-label if available
+
         return image, pseudo_label
 
     def update_pseudo_labels(self, new_pseudo_labels):
