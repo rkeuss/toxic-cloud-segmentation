@@ -11,8 +11,6 @@ from utils import losses
 from sklearn.model_selection import KFold
 from sklearn.metrics import jaccard_score
 
-# TODO: hyperparameter tuning (num_folds, num_epochs, batch_size, threshold, learning rate (lr), temperature,
-#  neighborhood_size, weights in hybrid loss)
 def train(
         num_folds=6, num_epochs=50, batch_size=8, threshold=0.5,
         learning_rate=0.001, temperature=0.1, neighborhood_size=5,
@@ -84,26 +82,39 @@ def train(
 
             print(f"Epoch {epoch + 1} Supervised Loss: {epoch_loss / len(train_dataloader):.4f}")
 
-            # Generate pseudo-labels for unlabeled data
-            try:
-                pseudo_labels = generate_pseudo_labels(
-                    model, unlabeled_dataloader, threshold=threshold, device=device
-                )
-                unlabeled_dataset.update_pseudo_labels(pseudo_labels)
-            except Exception as e:
-                print(f"Error generating pseudo-labels: {e}")
-                continue
+            if epoch > (num_epochs * 0): # todo: adjust 0 to 0.1
+                # Generate pseudo-labels for unlabeled data
+                try:
+                    pseudo_labels = generate_pseudo_labels(
+                        model, unlabeled_dataloader, threshold=threshold, device=device
+                    )
+                    unlabeled_dataset.update_pseudo_labels(pseudo_labels)
 
-            # Semi-supervised training on pseudo-labeled data (strong augmentations)
-            for images, pseudo_labels in tqdm(
-                    unlabeled_dataloader, desc=f"Epoch {epoch + 1}/{num_epochs} - Semi-supervised"
-            ):
-                images, pseudo_labels = images.to(device), pseudo_labels.to(device)
-                outputs = model(images)
-                loss = contrastive_loss_fn(outputs, pseudo_labels)
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
+                    # Filter out None values
+                    valid_pseudo_labels = [
+                        (image, label) for image, label in zip(unlabeled_dataloader.dataset, pseudo_labels)
+                        if label is not None
+                    ]
+
+                    if valid_pseudo_labels:
+                        images, labels = zip(*valid_pseudo_labels)
+                        unlabeled_dataset.update_pseudo_labels(images, labels)
+                    else:
+                        print("No valid pseudo-labels generated.")
+                except Exception as e:
+                    print(f"Error generating pseudo-labels: {e}")
+                    continue
+
+                # Semi-supervised training on pseudo-labeled data (strong augmentations)
+                for images, pseudo_labels in tqdm(
+                        unlabeled_dataloader, desc=f"Epoch {epoch + 1}/{num_epochs} - Semi-supervised"
+                ):
+                    images, pseudo_labels = images.to(device), pseudo_labels.to(device)
+                    outputs = model(images)
+                    loss = contrastive_loss_fn(outputs, pseudo_labels)  # moet hier niet gewoon de supervised loss? als dat zo is, waar moet de contrastive loss
+                    optimizer.zero_grad()
+                    loss.backward()
+                    optimizer.step()
 
         # Validation
         model.eval()
@@ -153,13 +164,13 @@ def train(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--num_folds", type=int, default=6) # todo
+    parser.add_argument("--num_folds", type=int, default=6)
     parser.add_argument("--num_epochs", type=int, default=40)
     parser.add_argument("--batch_size", type=int, default=14)
-    parser.add_argument("--threshold", type=float, default=0.5) # todo
-    parser.add_argument("--learning_rate", type=float, default=0.001) # todo
+    parser.add_argument("--threshold", type=float, default=0.5)
+    parser.add_argument("--learning_rate", type=float, default=0.001)
     parser.add_argument("--temperature", type=float, default=0.7)
-    parser.add_argument("--neighborhood_size", type=int, default=5) # todo
+    parser.add_argument("--neighborhood_size", type=int, default=3)
     parser.add_argument("--weight_pixel", type=float, default=1.0)
     parser.add_argument("--weight_local", type=float, default=1.0)
     parser.add_argument("--weight_directional", type=float, default=1.0)

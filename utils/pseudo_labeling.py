@@ -17,18 +17,32 @@ def generate_pseudo_labels(model, dataloader, threshold=0.5, device='cuda'):
     pseudo_labels = []
     model = model.to(device)
 
+    total_images = 0
     with torch.no_grad():
         for batch in dataloader:
-            images = batch[0].to(device)  # Assuming dataloader returns (images, _)
+            if batch is None:
+                raise Warning('Warning: Encountered a None batch, skipping')
+
+            images, _ = batch
+            if images is None or images.size(0) == 0:
+                raise Warning("Warning: Empty or invalid batch, skipping.")
+
+            images = images.to(device)
             outputs = model(images)
             probs = torch.sigmoid(outputs)  # For binary segmentation
 
             batch_pseudo_labels = (probs > threshold).long()
 
             if batch_pseudo_labels is None or batch_pseudo_labels.size(0) == 0:
-                print("Warning: No pseudo-labels generated for this batch.")
+                raises Warning("Warning: No pseudo-labels generated for this batch.")
                 continue
 
-            pseudo_labels.extend(batch_pseudo_labels.cpu())
+            for pseudo in batch_pseudo_labels.cpu():
+                pseudo_labels.append(pseudo)
+
+            total_images += images.size(0)
+
+    if len(pseudo_labels) != total_images:
+        raise Warning(f"Warning: Mismatch between image count ({total_images}) and pseudo-labels ({len(pseudo_labels)})")
 
     return pseudo_labels
