@@ -5,22 +5,25 @@
 #SBATCH --partition=gpu
 #SBATCH --gres=gpu:1
 #SBATCH --time=04:00:00
-#SBATCH --mem=32G
+#SBATCH --mem=64G
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=rosa@keuss.net
 
-module load Python/3.10.4
-source /projects/prjs1392/toxic-cloud-segmentation/.venv/bin/activate
+module purge
+module load 2022
+module load Python/3.10.4-GCCcore-11.3.0
+pip install -r requirements
+
 cd /projects/prjs1392/toxic-cloud-segmentation
 mkdir -p logs
 
-NUM_FOLDS=6
+NUM_FOLDS=6 # same default value as C3-semiseg
 NUM_EPOCHS=40 # same default value as C3-semiseg
-BATCH_SIZE=14 # same default value as C3-semiseg
-THRESHOLD=0.5
-LEARNING_RATE=0.001
-TEMPERATURE=0.7 # for contrastive loss, same default value as C3-semiseg
-NEIGHBORHOOD_SIZE=5
+BATCH_SIZE=14 # same default value as C3-semiseg, or 8 (default of local paper)
+THRESHOLD=0.5 # standard decision threshold for binary classification with sigmoid outputs. It assumes balanced class presence, which is often a simplification but works as a baseline.
+LEARNING_RATE=0.001 # same default value as C3-semiseg
+TEMPERATURE=0.7 # for contrastive loss, 0.7 is used default value as C3-semiseg, 0.1 is used default value as local paper
+NEIGHBORHOOD_SIZE=3 # same default value as local paper
 WEIGHT_PIXEL=1.0
 WEIGHT_LOCAL=1.0
 WEIGHT_DIRECTIONAL=1.0
@@ -66,14 +69,3 @@ python train.py \
     --weight_directional "$WEIGHT_DIRECTIONAL" \
     --supervised_loss "$SUPERVISED_LOSS" \
     --contrastive_loss "$CONTRASTIVE_LOSS"
-
-
-
-
-# ask chatgpt to:
-  #
-  #Help generate a .slurm script for testing interactively
-  #
-  #Set up job dependencies (e.g., evaluation after training)
-  #
-  #Optimize for multiple GPUs or MPI jobs on Snellius
