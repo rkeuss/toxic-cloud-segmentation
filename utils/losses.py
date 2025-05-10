@@ -3,7 +3,29 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
-# based on code paper 'local contrastive loss'
+
+# Code copied from C3-SemiSeg
+class MaskCrossEntropyLoss2d(nn.Module):
+    def __init__(self, weight=None, ignore_index=255, reduction='none'):
+        super(MaskCrossEntropyLoss2d, self).__init__()
+        self.ignore_index = ignore_index
+        self.CE = nn.CrossEntropyLoss(weight=weight, ignore_index=ignore_index, reduction=reduction)
+
+    def forward(self, output, target, mask=None):
+        loss = self.CE(output, target)
+        ignore_index_mask = (target != self.ignore_index).float()
+        if mask is None:
+            mask = ignore_index_mask
+        else:
+            mask = mask * ignore_index_mask
+        if mask.nonzero().size(0) != 0:
+            loss = (loss * mask).mean() * mask.numel() / mask.nonzero().size(0)
+        else:
+            loss = (loss * mask).mean() * mask.numel() / (mask.nonzero().size(0) + 1e-9)
+        return loss
+
+
+# Code based on code paper 'local contrastive loss'
 class DiceLoss(nn.Module):
     def __init__(self, smooth=1e-6):
         super(DiceLoss, self).__init__()
@@ -29,33 +51,6 @@ class DiceLoss(nn.Module):
         dices_per_subj = 2 * intersection / (l + r + self.smooth)
         loss = 1 - torch.mean(dices_per_subj)
         return loss
-
-
-class PixelContrastiveLoss(nn.Module):
-    def __init__(self, temperature=0.1):
-        super(PixelContrastiveLoss, self).__init__()
-        self.temperature = temperature
-
-    def forward(self, features, labels):
-        """
-        Pixel Contrastive Loss as described in C3-SemiSeg.
-        Args:
-            features: Tensor of shape (N, C, H, W), feature maps.
-            labels: Tensor of shape (N, H, W), ground truth or pseudo-labels.
-        """
-        # TODO improve
-        N, C, H, W = features.shape
-        features = features.permute(0, 2, 3, 1).reshape(-1, C)  # Flatten to (N*H*W, C)
-        labels = labels.view(-1)  # Flatten to (N*H*W)
-
-        mask = labels.unsqueeze(1) == labels.unsqueeze(0)  # Create similarity mask
-        mask = mask.float()
-
-        features = F.normalize(features, dim=1)  # Normalize features
-        logits = torch.matmul(features, features.T) / self.temperature  # Cosine similarity
-        exp_logits = torch.exp(logits) * mask
-        loss = -torch.log(exp_logits / (exp_logits.sum(dim=1, keepdim=True) + 1e-6))  # Avoid division by zero
-        return loss.mean()
 
 
 class LocalContrastiveLoss(nn.Module):
@@ -133,7 +128,7 @@ class DirectionalContrastiveLoss(nn.Module):
 
 
 class HybridContrastiveLoss(nn.Module):
-    def __init__(self, temperature=0.1, neighborhood_size=5, weight_pixel=1.0, weight_local=1.0, weight_directional=1.0):
+    def __init__(self, temperature=0.1, neighborhood_size=3, weight_pixel=1.0, weight_local=1.0, weight_directional=1.0):
         """
         Hybrid Contrastive Loss combining Pixel, Local, and Directional Contrastive Losses.
         Args:
@@ -176,106 +171,10 @@ class HybridContrastiveLoss(nn.Module):
         return combined_loss
 
 
-# The following code is copied from C3-SemiSeg
-
-def make_one_hot(labels, classes):
-    one_hot = torch.FloatTensor(labels.size()[0], classes, labels.size()[2], labels.size()[3]).zero_().to(labels.device)
-    target = one_hot.scatter_(1, labels.data, 1)
-    return target
-
-
-class CrossEntropyLoss2d(nn.Module):
-    def __init__(self, weight=None, ignore_index=255, reduction='mean'):
-        super(CrossEntropyLoss2d, self).__init__()
-        self.CE = nn.CrossEntropyLoss(weight=weight, ignore_index=ignore_index, reduction=reduction)
-
-    def forward(self, output, target):
-        loss = self.CE(output, target)
-        return loss
-
-
-class MaskCrossEntropyLoss2d(nn.Module):
-    def __init__(self, weight=None, ignore_index=255, reduction='none'):
-        super(MaskCrossEntropyLoss2d, self).__init__()
-        self.ignore_index = ignore_index
-        self.CE = nn.CrossEntropyLoss(weight=weight, ignore_index=ignore_index, reduction=reduction)
-
-    def forward(self, output, target, mask=None):
-        loss = self.CE(output, target)
-        ignore_index_mask = (target != self.ignore_index).float()
-        if mask is None:
-            mask = ignore_index_mask
-        else:
-            mask = mask * ignore_index_mask
-        if mask.nonzero().size(0) != 0:
-            loss = (loss * mask).mean() * mask.numel() / mask.nonzero().size(0)
-        else:
-            loss = (loss * mask).mean() * mask.numel() / (mask.nonzero().size(0) + 1e-9)
-        return loss
-
-
-class DiceLoss(nn.Module):
-    def __init__(self, smooth=1., ignore_index=255):
-        super(DiceLoss, self).__init__()
-        self.ignore_index = ignore_index
-        self.smooth = smooth
-
-    def forward(self, output, target):
-        if self.ignore_index not in range(target.min(), target.max()):
-            if (target == self.ignore_index).sum() > 0:
-                target[target == self.ignore_index] = target.min()
-        target = make_one_hot(target.unsqueeze(dim=1), classes=output.size()[1])
-        output = F.softmax(output, dim=1)
-        output_flat = output.contiguous().view(-1)
-        target_flat = target.contiguous().view(-1)
-        intersection = (output_flat * target_flat).sum()
-        loss = 1 - ((2. * intersection + self.smooth) /
-                    (output_flat.sum() + target_flat.sum() + self.smooth))
-        return loss
-
-
-class CE_DiceLoss(nn.Module):
-    def __init__(self, smooth=1, reduction='mean', ignore_index=255, weight=None):
-        super(CE_DiceLoss, self).__init__()
-        self.smooth = smooth
-        self.dice = DiceLoss()
-        self.cross_entropy = nn.CrossEntropyLoss(weight=weight, reduction=reduction, ignore_index=ignore_index)
-
-    def forward(self, output, target):
-        CE_loss = self.cross_entropy(output, target)
-        dice_loss = self.dice(output, target)
-        return CE_loss + dice_loss
-
-
-class EntropyLoss(nn.Module):
-    def __init__(self, ignore_index=255):
-        super(EntropyLoss, self).__init__()
-        self.CE = nn.CrossEntropyLoss
-        self.ignore_index = ignore_index
-
-    def forward(self, output, target):
-        b = F.softmax(output, dim=1) * F.log_softmax(output, dim=1)
-        b = b * (target != self.ignore_index).long()[:, None, ...]
-        b = -1.0 * b.sum() / (b.nonzero().size(0))
-        return b
-
-
-def sharpen(p, temp=0.5):
-    pt = p ** (1 / temp)
-    targets_u = pt / pt.sum(dim=1, keepdim=True)
-    targets_u = targets_u.detach()
-    return targets_u
-
-
-def label_smooth(onehot, cls=19, eta=0.1):
-    low_confidence = eta / cls
-    new_label = (1 - eta) * onehot + low_confidence
-    return new_label
-
-
-class PixelContrastLoss(nn.Module):
+# Code copied from C3-SemiSeg
+class PixelContrastiveLoss(nn.Module):
     def __init__(self, temperature=0.1, neg_num=256, memory_bank=None, mining=True):
-        super(PixelContrastLoss, self).__init__()
+        super(PixelContrastiveLoss, self).__init__()
 
         self.temperature = temperature
         self.base_temperature = 0.1
@@ -578,6 +477,85 @@ class PixelContrastLoss(nn.Module):
             else:
                 loss = self._contrastive_pair(feats_, feats_t_, labels_, labels_)
         return loss
+
+
+
+
+
+# Not used
+class CrossEntropyLoss2d(nn.Module):
+    def __init__(self, weight=None, ignore_index=255, reduction='mean'):
+        super(CrossEntropyLoss2d, self).__init__()
+        self.CE = nn.CrossEntropyLoss(weight=weight, ignore_index=ignore_index, reduction=reduction)
+
+    def forward(self, output, target):
+        loss = self.CE(output, target)
+        return loss
+
+
+class DiceLoss(nn.Module):
+    def __init__(self, smooth=1., ignore_index=255):
+        super(DiceLoss, self).__init__()
+        self.ignore_index = ignore_index
+        self.smooth = smooth
+
+    def forward(self, output, target):
+        if self.ignore_index not in range(target.min(), target.max()):
+            if (target == self.ignore_index).sum() > 0:
+                target[target == self.ignore_index] = target.min()
+        target = make_one_hot(target.unsqueeze(dim=1), classes=output.size()[1])
+        output = F.softmax(output, dim=1)
+        output_flat = output.contiguous().view(-1)
+        target_flat = target.contiguous().view(-1)
+        intersection = (output_flat * target_flat).sum()
+        loss = 1 - ((2. * intersection + self.smooth) /
+                    (output_flat.sum() + target_flat.sum() + self.smooth))
+        return loss
+
+
+class CE_DiceLoss(nn.Module):
+    def __init__(self, smooth=1, reduction='mean', ignore_index=255, weight=None):
+        super(CE_DiceLoss, self).__init__()
+        self.smooth = smooth
+        self.dice = DiceLoss()
+        self.cross_entropy = nn.CrossEntropyLoss(weight=weight, reduction=reduction, ignore_index=ignore_index)
+
+    def forward(self, output, target):
+        CE_loss = self.cross_entropy(output, target)
+        dice_loss = self.dice(output, target)
+        return CE_loss + dice_loss
+
+
+class EntropyLoss(nn.Module):
+    def __init__(self, ignore_index=255):
+        super(EntropyLoss, self).__init__()
+        self.CE = nn.CrossEntropyLoss
+        self.ignore_index = ignore_index
+
+    def forward(self, output, target):
+        b = F.softmax(output, dim=1) * F.log_softmax(output, dim=1)
+        b = b * (target != self.ignore_index).long()[:, None, ...]
+        b = -1.0 * b.sum() / (b.nonzero().size(0))
+        return b
+
+
+def sharpen(p, temp=0.5):
+    pt = p ** (1 / temp)
+    targets_u = pt / pt.sum(dim=1, keepdim=True)
+    targets_u = targets_u.detach()
+    return targets_u
+
+
+def label_smooth(onehot, cls=19, eta=0.1):
+    low_confidence = eta / cls
+    new_label = (1 - eta) * onehot + low_confidence
+    return new_label
+
+
+def make_one_hot(labels, classes):
+    one_hot = torch.FloatTensor(labels.size()[0], classes, labels.size()[2], labels.size()[3]).zero_().to(labels.device)
+    target = one_hot.scatter_(1, labels.data, 1)
+    return target
 
 
 def log_rampup(current, rampup_length):

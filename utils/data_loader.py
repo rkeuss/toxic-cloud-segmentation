@@ -136,8 +136,6 @@ class UnlabelledDataset(Dataset):
                     continue  # Skip hidden/macOS metadata files
                 self.image_list.append(os.path.join(image_dir, img_name))
 
-        self.pseudo_labels = [None] * len(self.image_list)  # Placeholder for pseudo-labels
-
     def __len__(self):
         return len(self.image_list)
 
@@ -149,13 +147,7 @@ class UnlabelledDataset(Dataset):
             raise RuntimeError(f"Failed to load image {img_path}: {e}")
 
         image = self.transform(image=image)["image"] if self.transform else ToTensorV2()(image=image)["image"]
-        pseudo_label = self.pseudo_labels[idx]  # Retrieve pseudo-label if available
-
-        return image, pseudo_label
-
-    def update_pseudo_labels(self, new_pseudo_labels):
-        """Update pseudo-labels dynamically."""
-        self.pseudo_labels = new_pseudo_labels
+        return image.float(), 0
 
 
 def get_unlabelled_dataloader(image_dirs, batch_size, shuffle=True):

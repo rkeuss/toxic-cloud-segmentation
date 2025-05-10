@@ -24,7 +24,7 @@ def train(
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
     if supervised_loss == 'cross_entropy':
-        criterion = nn.CrossEntropyLoss()
+        criterion = losses.MaskCrossEntropyLoss2d()
     elif supervised_loss == 'dice':
         criterion = losses.DiceLoss()
     else:
@@ -82,39 +82,37 @@ def train(
 
             print(f"Epoch {epoch + 1} Supervised Loss: {epoch_loss / len(train_dataloader):.4f}")
 
-            if epoch > (num_epochs * 0): # todo: adjust 0 to 0.1
-                # Generate pseudo-labels for unlabeled data
+            if epoch > (num_epochs * 0): # todo: adjust if epoch > int(num_epochs * 0.1):
                 try:
-                    pseudo_labels = generate_pseudo_labels(
-                        model, unlabeled_dataloader, threshold=threshold, device=device
-                    )
-                    unlabeled_dataset.update_pseudo_labels(pseudo_labels)
+                    pseudo_generator = generate_pseudo_labels(model, unlabeled_dataloader, threshold, device)
 
-                    # Filter out None values
-                    valid_pseudo_labels = [
-                        (image, label) for image, label in zip(unlabeled_dataloader.dataset, pseudo_labels)
-                        if label is not None
-                    ]
+                    for images, pseudo_labels in tqdm(
+                            pseudo_generator,
+                            desc=f"Epoch {epoch + 1}/{num_epochs} - Semi-supervised"
+                    ):
+                        images, pseudo_labels = images.to(device), pseudo_labels.to(device)
 
-                    if valid_pseudo_labels:
-                        images, labels = zip(*valid_pseudo_labels)
-                        unlabeled_dataset.update_pseudo_labels(images, labels)
-                    else:
-                        print("No valid pseudo-labels generated.")
+                        model.train()
+                        outputs = model(images)
+                        pseudo_labels = torch.argmax(outputs.detach(), dim=1)
+
+                        loss = contrastive_loss_fn(
+                            outputs,  # logits or features
+                            labels=pseudo_labels
+                        )
+
+                        # loss = contrastive_loss_fn(
+                        #     outputs,
+                        #     labels=pseudo_labels.to(dtype=torch.float32, device=outputs.device)
+                        # )
+
+                        optimizer.zero_grad()
+                        loss.backward()
+                        optimizer.step()
+
                 except Exception as e:
-                    print(f"Error generating pseudo-labels: {e}")
+                    print(f"Error during semi-supervised training: {e}")
                     continue
-
-                # Semi-supervised training on pseudo-labeled data (strong augmentations)
-                for images, pseudo_labels in tqdm(
-                        unlabeled_dataloader, desc=f"Epoch {epoch + 1}/{num_epochs} - Semi-supervised"
-                ):
-                    images, pseudo_labels = images.to(device), pseudo_labels.to(device)
-                    outputs = model(images)
-                    loss = contrastive_loss_fn(outputs, pseudo_labels)  # moet hier niet gewoon de supervised loss? als dat zo is, waar moet de contrastive loss
-                    optimizer.zero_grad()
-                    loss.backward()
-                    optimizer.step()
 
         # Validation
         model.eval()
