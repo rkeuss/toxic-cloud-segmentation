@@ -1,4 +1,12 @@
 import torch
+import logging
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    filename='logs/debug.log',  # File path in the logs directory
+    filemode='w',  # Overwrite the file each time the script runs
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 
 def generate_pseudo_labels(model, dataloader, threshold=0.5, device='cuda'):
     """
@@ -31,11 +39,16 @@ def generate_pseudo_labels(model, dataloader, threshold=0.5, device='cuda'):
             outputs = model(images)
             probs = torch.sigmoid(outputs)  # For binary segmentation
 
+            logging.debug(f"Model outputs: {outputs}")
+            logging.debug(f"Probabilities: {probs}")
+            logging.debug(f"Threshold: {threshold}")
+            logging.debug(f"Predictions above threshold: {(probs > threshold).sum().item()}")
+
             batch_pseudo_labels = (probs > threshold).long()
 
             if batch_pseudo_labels is None or batch_pseudo_labels.size(0) == 0:
                 raises Warning("Warning: No pseudo-labels generated for this batch.")
-                continue
+                continue # this warning is raised > needs to be fixed
 
             for pseudo in batch_pseudo_labels.cpu():
                 pseudo_labels.append(pseudo)
