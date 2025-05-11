@@ -83,9 +83,9 @@ class DeepLabV3Plus(nn.Module):
     def forward(self, x):
         input_shape = x.shape[-2:]
         features = self.backbone(x)
-        x = self.classifier(features)
-        x = F.interpolate(x, size=input_shape, mode='bilinear', align_corners=False)
-        return dict(out=x)
+        classifier_out = self.classifier(features)
+        logits = F.interpolate(classifier_out, size=input_shape, mode='bilinear', align_corners=False)
+        return logits, features['out']  # return both final logits and high-level feature maps
 
 
 def _deeplabv3plus(backbone_name, num_classes, output_stride, pretrained_backbone):
@@ -126,7 +126,10 @@ class DeepLabv3Wrapper (nn.Module):
 
 
     def forward(self, x, feature_maps=False, use_dropout=False):
-        return self.deeplab(x)['out']
+        logits, features = self.deeplab(x)
+        if feature_maps:
+            return logits, features
+        return logits
 
 
     def freeze_batchnorm(self):
