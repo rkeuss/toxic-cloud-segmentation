@@ -1,8 +1,12 @@
 import torch
 import logging
+import warnings
+import numpy as np
 
-
-def generate_pseudo_labels(model, dataloader, threshold=0.5, device='cuda'):
+def generate_pseudo_labels(
+        model, dataloader, threshold=0.5, device='cuda',
+        dynamic_threshold=True, class_balanced=True
+):
     """
     Generate pseudo-labels for unlabeled data using the model's predictions.
 
@@ -11,30 +15,63 @@ def generate_pseudo_labels(model, dataloader, threshold=0.5, device='cuda'):
         dataloader (torch.utils.data.DataLoader): DataLoader for unlabeled data.
         threshold (float): Confidence threshold for binary segmentation.
         device (str): Device to run the model on ('cuda' or 'cpu').
+        dynamic_threshold (bool): Whether to use dynamic thresholding based on confidence distribution.
+        class_balanced (bool): Whether to apply class-specific thresholds for balanced pseudo-labels.
 
-    Returns:
-        list: A list of pseudo-label tensors for each image in the dataloader.
+    Yields:
+        tuple: A batch of images and their corresponding pseudo-labels.
     """
     model.eval()
+    for images, _ in dataloader:
+        if images is None or images.size(0) == 0:
+            warnings.warn("Empty or invalid batch, skipping.")
+            continue
 
-    total_images = 0
-    with torch.no_grad():
-        for images, _ in dataloader:
-            if images is None or images.size(0) == 0:
-                warnings.warn("Empty or invalid batch, skipping.")
-                continue
+        images = images.to(device)
+        with torch.no_grad():
+            logits = model(images)
+            probs = torch.softmax(logits, dim=1)
+            confidence, pseudo_labels = torch.max(probs, dim=1)
 
-            images = images.to(device)
-            outputs = model(images)
-            probs = torch.sigmoid(outputs)
-            batch_pseudo_labels = (probs > threshold).to(dtype=torch.float32, device=outputs.device)
+            # Dynamic thresholding
+            if dynamic_threshold:
+                threshold = torch.quantile(probs, 0.75).item()  # Use 75th percentile as threshold
 
-            if batch_pseudo_labels is None or batch_pseudo_labels.size(0) == 0:
-                warnings.warn("No pseudo-labels generated for this batch.")
-                continue # this warning is raised > needs to be fixed
-            total_images += images.size(0)
+            # Class-balanced pseudo-labels
+            if class_balanced:
+                class_thresholds = compute_class_thresholds(probs, percentile=75)
+                print("Class thresholds:", {c: round(class_thresholds[c], 4) for c in range(probs.shape[1])})
+                for c in range(probs.shape[1]):
+                    pseudo_labels[(confidence < class_thresholds[c]) & (pseudo_labels == c)] = 255  # Ignore low-confidence
 
-            yield images.cpu(), batch_pseudo_labels.cpu()
+            else:
+                pseudo_labels[confidence < threshold] = 255  # Use ignore index for low-confidence regions
 
-    if len(pseudo_labels) != total_images:
-        raise RuntimeError(f"Warning: Mismatch between image count ({total_images}) and pseudo-labels ({len(pseudo_labels)})")
+            # Debug information
+            unique, counts = torch.unique(pseudo_labels, return_counts=True)
+            print("Pseudo-label distribution:", dict(zip(unique.tolist(), counts.tolist())))
+            print("Confidence mean:", confidence.mean().item())
+            print("Available classes in pseudo-labels:", torch.unique(pseudo_labels[pseudo_labels != 255]).tolist())
+
+        yield images.cpu(), pseudo_labels.cpu()
+
+        del logits, probs, confidence, pseudo_labels
+        torch.cuda.empty_cache()
+    model.train()
+
+def compute_class_thresholds(probs, percentile=75):
+    """
+    Compute class-specific thresholds based on the confidence distribution.
+
+    Args:
+        probs (torch.Tensor): Probability tensor of shape (N, C, H, W).
+        percentile (int): Percentile to use for thresholding.
+
+    Returns:
+        list: Class-specific thresholds.
+    """
+    thresholds = []
+    for c in range(probs.shape[1]):
+        class_probs = probs[:, c, :, :].flatten()
+        thresholds.append(torch.quantile(class_probs, percentile / 100.0).item())
+    return thresholds

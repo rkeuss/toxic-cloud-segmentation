@@ -92,13 +92,12 @@ def get_ijmond_seg_dataloader_train(train_idx, split, batch_size, shuffle=True):
     # Filter imgIds to only include those in train_idx
     train_imgIds = [imgIds[i] for i in train_idx]
 
+    # Weak data augmentation for training
     train_transform = A.Compose([
-        A.Resize(640, 640),
+        A.Resize(640, 640, interpolation=cv2.INTER_LINEAR),  # for images
         A.HorizontalFlip(p=0.5),
-        A.Rotate(limit=10, p=0.5),
-        A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1, p=0.5),
-        ToTensorV2(),
-    ])
+        ToTensorV2(transpose_mask=True),  # ensures mask is treated correctly
+    ], additional_targets={'mask': 'mask'})
 
     dataset = IJmondSegDataset(coco, train_imgIds, image_dir, transform=train_transform)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
@@ -151,11 +150,15 @@ class UnlabelledDataset(Dataset):
 
 
 def get_unlabelled_dataloader(image_dirs, batch_size, shuffle=True):
+    # Strong data augmentation for unlabeled data
     strong_transform = A.Compose([
         A.Resize(640, 640),
         A.HorizontalFlip(p=0.5),
-        A.Rotate(limit=15, p=0.5),
-        A.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.2, p=0.5),
+        A.Rotate(limit=30, p=0.7),
+        A.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4, hue=0.2, p=0.7),
+        A.GaussianBlur(blur_limit=(3, 7), p=0.5),
+        A.RandomBrightnessContrast(brightness_limit=0.3, contrast_limit=0.3, p=0.5),
+        A.CoarseDropout(p=0.5),
         ToTensorV2(),
     ])
 
