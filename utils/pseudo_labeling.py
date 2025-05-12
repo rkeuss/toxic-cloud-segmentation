@@ -4,14 +4,14 @@ import warnings
 import numpy as np
 
 def generate_pseudo_labels(
-        model, dataloader, threshold=0.5, device='cuda',
+        teacher_model, dataloader, threshold=0.5, device='cuda',
         dynamic_threshold=True, class_balanced=True
 ):
     """
-    Generate pseudo-labels for unlabeled data using the model's predictions.
+    Generate pseudo-labels for unlabeled data using the teacher model's predictions.
 
     Args:
-        model (torch.nn.Module): The trained model.
+        teacher_model (torch.nn.Module): The trained teacher model.
         dataloader (torch.utils.data.DataLoader): DataLoader for unlabeled data.
         threshold (float): Confidence threshold for binary segmentation.
         device (str): Device to run the model on ('cuda' or 'cpu').
@@ -21,7 +21,7 @@ def generate_pseudo_labels(
     Yields:
         tuple: A batch of images and their corresponding pseudo-labels.
     """
-    model.eval()
+    teacher_model.eval()  # Ensure teacher model is in evaluation mode
     for images, _ in dataloader:
         if images is None or images.size(0) == 0:
             warnings.warn("Empty or invalid batch, skipping.")
@@ -29,7 +29,7 @@ def generate_pseudo_labels(
 
         images = images.to(device)
         with torch.no_grad():
-            logits = model(images)
+            logits = teacher_model(images)
             probs = torch.softmax(logits, dim=1)
             confidence, pseudo_labels = torch.max(probs, dim=1)
 
@@ -43,21 +43,15 @@ def generate_pseudo_labels(
                 print("Class thresholds:", {c: round(class_thresholds[c], 4) for c in range(probs.shape[1])})
                 for c in range(probs.shape[1]):
                     pseudo_labels[(confidence < class_thresholds[c]) & (pseudo_labels == c)] = 255  # Ignore low-confidence
-
             else:
                 pseudo_labels[confidence < threshold] = 255  # Use ignore index for low-confidence regions
 
-            # Debug information
-            unique, counts = torch.unique(pseudo_labels, return_counts=True)
-            print("Pseudo-label distribution:", dict(zip(unique.tolist(), counts.tolist())))
-            print("Confidence mean:", confidence.mean().item())
-            print("Available classes in pseudo-labels:", torch.unique(pseudo_labels[pseudo_labels != 255]).tolist())
 
         yield images.cpu(), pseudo_labels.cpu()
 
         del logits, probs, confidence, pseudo_labels
         torch.cuda.empty_cache()
-    model.train()
+    teacher_model.train()
 
 def compute_class_thresholds(probs, percentile=75):
     """

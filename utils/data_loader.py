@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from PIL import Image
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
+from torch.utils.data.distributed import DistributedSampler
 
 
 class IJmondSegDataset(Dataset):
@@ -83,7 +84,7 @@ def get_ijmond_seg_dataset(image_dir, split):
     dataset = IJmondSegDataset(coco, imgIds, image_dir, transform=None)
     return dataset
 
-def get_ijmond_seg_dataloader_train(train_idx, split, batch_size, shuffle=True):
+def get_ijmond_seg_dataloader_train(train_idx, split, batch_size, shuffle=True, rank=0, world_size=1):
     image_dir = 'data/IJMOND_SEG'
     coco_annotations = f"{image_dir}/splits/{split}.json"
     coco = COCO(coco_annotations)
@@ -96,14 +97,16 @@ def get_ijmond_seg_dataloader_train(train_idx, split, batch_size, shuffle=True):
     train_transform = A.Compose([
         A.Resize(640, 640, interpolation=cv2.INTER_LINEAR),  # for images
         A.HorizontalFlip(p=0.5),
+        A.Rotate(limit=10, p=0.5),  # Random rotation within 10°
         ToTensorV2(transpose_mask=True),  # ensures mask is treated correctly
     ], additional_targets={'mask': 'mask'})
 
     dataset = IJmondSegDataset(coco, train_imgIds, image_dir, transform=train_transform)
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
+    sampler = DistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle=shuffle)
+    dataloader = DataLoader(dataset, batch_size=batch_size, sampler=sampler)
     return dataloader
 
-def get_ijmond_seg_dataloader_validation(val_idx, split, batch_size, shuffle=True):
+def get_ijmond_seg_dataloader_validation(val_idx, split, batch_size, shuffle=True, rank=0, world_size=1):
     image_dir = 'data/IJMOND_SEG'
     coco_annotations = f"{image_dir}/splits/{split}.json"
     coco = COCO(coco_annotations)
@@ -119,7 +122,8 @@ def get_ijmond_seg_dataloader_validation(val_idx, split, batch_size, shuffle=Tru
     ])
 
     dataset = IJmondSegDataset(coco, val_imgIds, image_dir, transform=val_transform)
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
+    sampler = DistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle=shuffle)
+    dataloader = DataLoader(dataset, batch_size=batch_size, sampler=sampler)
     return dataloader
 
 
@@ -149,19 +153,26 @@ class UnlabelledDataset(Dataset):
         return image.float(), 0
 
 
-def get_unlabelled_dataloader(image_dirs, batch_size, shuffle=True):
+def get_unlabelled_dataloader(image_dirs, batch_size, shuffle=True, rank=0, world_size=1):
     # Strong data augmentation for unlabeled data
     strong_transform = A.Compose([
         A.Resize(640, 640),
         A.HorizontalFlip(p=0.5),
-        A.Rotate(limit=30, p=0.7),
+        A.Rotate(limit=10, p=0.5),  # Random rotation within 10°
         A.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4, hue=0.2, p=0.7),
-        A.GaussianBlur(blur_limit=(3, 7), p=0.5),
-        A.RandomBrightnessContrast(brightness_limit=0.3, contrast_limit=0.3, p=0.5),
-        A.CoarseDropout(p=0.5),
+        A.RandomResizedCrop(size=(640, 640), scale=(0.08, 1.0), ratio=(1.0, 1.0), interpolation=cv2.INTER_LINEAR),
+
+        # RandAugment-style color transforms
+        A.Solarize(threshold_range=(0, 0.8), p=0.3),
+        A.Equalize(mode='cv', p=0.3),
+        A.RandomBrightnessContrast(p=0.3),
+        A.RandomGamma(p=0.3),
+        A.Posterize(num_bits=4, p=0.3),
+
         ToTensorV2(),
     ])
 
     dataset = UnlabelledDataset(image_dirs, transform=strong_transform)
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
+    sampler = DistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle=shuffle)
+    dataloader = DataLoader(dataset, batch_size=batch_size, sampler=sampler)
     return dataloader
