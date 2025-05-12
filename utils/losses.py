@@ -12,10 +12,6 @@ class MaskCrossEntropyLoss2d(nn.Module):
         self.CE = nn.CrossEntropyLoss(weight=weight, ignore_index=ignore_index, reduction=reduction)
 
     def forward(self, output, target, mask=None):
-        # Ensure outputs and labels are properly connected to the computation graph
-        assert output.requires_grad, "Outputs tensor is detached!"
-        assert target.requires_grad is False, "Labels tensor should not require gradients!"
-
         loss = self.CE(output, target)
         ignore_index_mask = (target != self.ignore_index).float()
         if mask is None:
@@ -27,8 +23,6 @@ class MaskCrossEntropyLoss2d(nn.Module):
             loss = (loss * mask).mean() * mask.numel() / mask.nonzero().size(0)
         else:
             loss = (loss * mask).mean() * mask.numel() / (mask.nonzero().size(0) + 1e-9)
-
-        assert loss.requires_grad, "Final loss tensor is detached!"
         return loss
 
 
@@ -61,7 +55,7 @@ class DiceLoss(nn.Module):
 
 
 class LocalContrastiveLoss(nn.Module):
-    def __init__(self, temperature=0.1, no_of_pos_eles=3, no_of_neg_eles=3, local_loss_exp_no=1, lamda_local=0.1):
+    def __init__(self, temperature=0.1, no_of_pos_eles=3, no_of_neg_eles=3, local_loss_exp_no=0, lamda_local=0.1):
         super(LocalContrastiveLoss, self).__init__()
         self.temperature = temperature
         self.no_of_pos_eles = no_of_pos_eles
@@ -163,260 +157,6 @@ class LocalContrastiveLoss(nn.Module):
                             loss += -torch.log(sim_pos / (sim_pos + sim_negs + 1e-8))
 
         return self.lamda_local * loss / (B * self.no_of_pos_eles + 1e-8)
-
-
-    #         ###################################
-    #         # Contrastive loss specific layers
-    #         ###################################
-    #         # Output of common encoder-decoder network - to be feed to a contrastive specific layers
-    #         tmp_dec_layer=dec_c1_a
-    #         tmp_no_filters=no_filters[1]
-    #
-    #         # h_\phi - small network with two 1x1 convolutions for contrastive loss computation
-    #         tmp_dec_layer = tf.cond(train_phase, lambda: tf.gather(tmp_dec_layer, unl_indices), lambda: tmp_dec_layer)
-    #         #print('tmp_dec_layer', tmp_dec_layer)
-    #         cont_c1_a = layers.conv2d_layer(ip_layer=tmp_dec_layer,name='cont_c1_a', kernel_size=(1,1), num_filters=tmp_no_filters,use_bias=False, use_relu=True, use_batch_norm=True, training_phase=train_phase)
-    #         cont_c1_b = layers.conv2d_layer(ip_layer=cont_c1_a, name='cont_c1_b', kernel_size=(1,1),num_filters=tmp_no_filters, use_bias=False, use_relu=False,use_batch_norm=False, training_phase=train_phase)
-    #
-    #         y_fin_tmp=cont_c1_b
-    #
-    #         # Define Local Contrastive loss
-    #         if(inf==1):
-    #             y_fin=y_fin_tmp
-    #             local_loss=1
-    #             net_local_loss=1#np.array(1, dtype=np.int32)
-    #             bs,tmp_batch_size=20,10
-    #             #bs=2*self.batch_size
-    #         else:
-    #             y_fin=y_fin_tmp
-    #             print('y_fin_local',y_fin,pos_indx,neg_indx)
-    #             print('start of for loop',time.ctime())
-    #
-    #             local_loss=0
-    #             net_local_loss=0
-    #
-    #             for pos_index in range(0,batch_size_ft,1):
-    #
-    #                 index_pos1=pos_index
-    #                 index_pos2=batch_size_ft+pos_index
-    #
-    #                 #indexes of positive pair of samples (f(x),f(x')) of input images (x,x') from the batch of feature maps.
-    #                 num_i1=np.arange(index_pos1,index_pos1+1,dtype=np.int32)
-    #                 num_i2=np.arange(index_pos2,index_pos2+1,dtype=np.int32)
-    #
-    #                 # gather required positive samples (f(x),f(x')) of (x,x') for the numerator term
-    #                 x_num_i1=tf.gather(y_fin,num_i1)
-    #                 x_num_i2=tf.gather(y_fin,num_i2)
-    #                 #print('x_num_i1',index_pos1,index_pos2,x_num_i1,x_num_i2)
-    #
-    #                 x_zero_re=tf.constant(0,shape=(),dtype=np.float32)
-    #                 x_zero_vec=tf.constant(0,dtype=np.float32,shape=(1,tmp_no_filters))
-    #
-    #                 #x_epsilon_vec=tf.constant(0.0,dtype=np.float32,shape=(1,tmp_no_filters))
-    #                 #print('x_zero_vec',x_zero_vec)
-    #
-    #                 mask_i1 = tf.gather(y_l_reg, num_i1)
-    #                 mask_i2 = tf.gather(y_l_reg, num_i2)
-    #
-    #                 if(self.dataset_name=='mmwhs'):
-    #                     #pos_cls_ref = np.asarray([0,2,3,4,5,6])
-    #                     #neg_cls_ref = np.asarray([1,3,4,5,6,7])
-    #                     #pos_cls_ref = np.asarray([0,1,2,3,5,6])
-    #                     #neg_cls_ref = np.asarray([1,2,3,4,6,7])
-    #                     pos_cls_ref = np.asarray([0,1,2,3,4,5,6])
-    #                     neg_cls_ref = np.asarray([1,2,3,4,5,6,7])
-    #                     print('pos_cls_ref,neg_cls_ref',pos_cls_ref,neg_cls_ref)
-    #                 elif(self.dataset_name=='acdc'):
-    #                     pos_cls_ref = np.asarray([0,1,2])
-    #                     neg_cls_ref = np.asarray([1,2,3])
-    #                     print('pos_cls_ref,neg_cls_ref', pos_cls_ref, neg_cls_ref)
-    #                 elif(self.dataset_name=='prostate_md'):
-    #                     pos_cls_ref = np.asarray([0,1])
-    #                     neg_cls_ref = np.asarray([1,2])
-    #                     print('pos_cls_ref,neg_cls_ref', pos_cls_ref, neg_cls_ref)
-    #
-    #                 for pos_cls in pos_cls_ref:
-    #                     pos_cls_ele_i1=pos_indx[pos_index][pos_cls]
-    #                     neg_cls_ele_i1=neg_indx[pos_index][pos_cls]
-    #                     pos_cls_ele_i2=pos_indx[batch_size_ft+pos_index][pos_cls]
-    #                     neg_cls_ele_i2=neg_indx[batch_size_ft+pos_index][pos_cls]
-    #
-    #                     #print('cls_i1',pos_cls,pos_cls_ele_i1,neg_cls_ele_i1)
-    #                     #print('cls_i2',pos_cls,pos_cls_ele_i2,neg_cls_ele_i2)
-    #
-    #                     #############################
-    #                     #mask of image 1 (x) from batch X_B
-    #                     #select positive classes masks' mean embeddings
-    #                     mask_i1_pos=tf.gather(mask_i1,pos_cls+1,axis=-1)
-    #                     ##mask_i1_pos=tf.gather(mask_i1,pos_cls,axis=-1)
-    #                     pos_cls_avg_i1 = tf.boolean_mask(x_num_i1, mask_i1_pos)
-    #                     pos_avg_vec_i1_p = tf.reshape(tf.reduce_mean(pos_cls_avg_i1,axis=0),(1,tmp_no_filters))
-    #                     pos_avg_i1_nan=tf.is_nan(tf.reduce_sum(pos_avg_vec_i1_p))
-    #                     ##print('pos_avg_vec_i1',pos_cls,mask_i1_pos,pos_cls_avg_i1,pos_avg_vec_i1_p)
-    #                     #############################
-    #
-    #                     #############################
-    #                     # make list of negative classes masks' mean embeddings from image 1 (x) mask
-    #                     neg_mask1_list = []
-    #                     for neg_cls_i1 in neg_cls_ref:
-    #                         mask_i1_neg = tf.gather(mask_i1, neg_cls_i1, axis=-1)
-    #                         neg_cls_avg_i1 = tf.boolean_mask(x_num_i1, mask_i1_neg)
-    #                         neg_avg_vec_i1_p = tf.reshape(tf.reduce_mean(neg_cls_avg_i1, axis=0), (1, tmp_no_filters))
-    #                         neg_avg_i1_nan=tf.is_nan(tf.reduce_sum(neg_avg_vec_i1_p))
-    #                         neg_mask1_list.append(neg_avg_vec_i1_p)
-    #                     #print('neg_mask1_list', neg_mask1_list)
-    #                     #############################
-    #
-    #                     #############################
-    #                     #mask of image 2 (x')  from batch X_B
-    #                     #select positive classes masks' mean embeddings
-    #                     mask_i2_pos=tf.gather(mask_i2,pos_cls+1,axis=-1)
-    #                     ##mask_i2_pos=tf.gather(mask_i2,pos_cls,axis=-1)
-    #                     pos_cls_avg_i2 = tf.boolean_mask(x_num_i2, mask_i2_pos)
-    #                     pos_avg_vec_i2_p = tf.reshape(tf.reduce_mean(pos_cls_avg_i2,axis=0),(1,tmp_no_filters))
-    #                     pos_avg_i2_nan=tf.is_nan(tf.reduce_sum(pos_avg_vec_i2_p))
-    #                     #print('pos_avg_vec_i2',pos_cls,mask_i2_pos,pos_cls_avg_i2,pos_avg_vec_i2_p)
-    #                     #############################
-    #
-    #                     #############################
-    #                     # #select negative classes mask averages
-    #                     # make list of negative classes masks' mean embeddings from image 2 (x') mask
-    #                     neg_mask2_list = []
-    #                     for neg_cls_i2 in neg_cls_ref:
-    #                         mask_i2_neg = tf.gather(mask_i2, neg_cls_i2, axis=-1)
-    #                         neg_cls_avg_i2 = tf.boolean_mask(x_num_i2, mask_i2_neg)
-    #                         neg_avg_vec_i2_p = tf.reshape(tf.reduce_mean(neg_cls_avg_i2, axis=0), (1, tmp_no_filters))
-    #                         neg_avg_i2_nan=tf.is_nan(tf.reduce_sum(neg_avg_vec_i2_p))
-    #                         neg_mask2_list.append(neg_avg_vec_i2_p)
-    #                     #print('neg_mask2_list', neg_mask2_list)
-    #                     #############################
-    #
-    #                     #Loop over all the positive embeddings from f(x) of all classes
-    #                     for n_pos_idx in range(0,no_of_pos_eles,1):
-    #                         x_num_tmp_i1 = tf.gather(x_num_i1,pos_cls_ele_i1[n_pos_idx][0],axis=1)
-    #                         #print('x_num_tmp_i1 j0',x_num_tmp_i1)
-    #                         x_num_tmp_i1 = tf.gather(x_num_tmp_i1,pos_cls_ele_i1[n_pos_idx][1],axis=1)
-    #                         #print('x_num_tmp_i1 j1',x_num_tmp_i1)
-    #
-    #                         x_n1_count=tf.math.count_nonzero(x_num_tmp_i1)
-    #                         x_n_i1_flat = tf.cond(tf.equal(x_n1_count,0), lambda: x_zero_vec, lambda: tf.layers.flatten(inputs=x_num_tmp_i1))
-    #                         #print('x_n_i1_flat',x_n_i1_flat,tf.layers.flatten(inputs=x_num_tmp_i1))
-    #                         x_w3_n_i1=x_n_i1_flat
-    #
-    #                         x_num_tmp_i2 = tf.gather(x_num_i2,pos_cls_ele_i2[n_pos_idx][0],axis=1)
-    #                         x_num_tmp_i2 = tf.gather(x_num_tmp_i2,pos_cls_ele_i2[n_pos_idx][1],axis=1)
-    #                         #print('x_num_tmp_i2 j',x_num_tmp_i2)
-    #
-    #                         x_n2_count=tf.math.count_nonzero(x_num_tmp_i2)
-    #                         x_n_i2_flat = tf.cond(tf.equal(x_n2_count,0), lambda: x_zero_vec, lambda: tf.layers.flatten(inputs=x_num_tmp_i2))
-    #                         #print('x_n_i2_flat',x_n_i2_flat,tf.layers.flatten(inputs=x_num_tmp_i2))
-    #                         x_w3_n_i2=x_n_i2_flat
-    #
-    #                         # Cosine loss for positive pair of pixel embeddings from f(x), f(x')
-    #                         # Numerator loss terms of local loss
-    #                         pos_avg_vec_i1=pos_avg_vec_i1_p
-    #                         pos_avg_vec_i2=pos_avg_vec_i2_p
-    #
-    #                         log_or_n1 = tf.math.logical_or(tf.equal(x_n1_count,0),tf.equal(tf.math.count_nonzero(pos_avg_vec_i1),0))
-    #                         log_or_n1_nan = tf.math.logical_or(tf.is_nan(tf.reduce_sum(x_w3_n_i1)),tf.is_nan(tf.reduce_sum(pos_avg_vec_i1)))
-    #                         log_or_n1_net = tf.math.logical_or(log_or_n1,log_or_n1_nan)
-    #                         num_i1_ss = tf.cond(log_or_n1_net, lambda: x_zero_re, lambda: self.cos_sim(x_w3_n_i1,pos_avg_vec_i1,temp_fac))
-    #                         log_or_n2 = tf.math.logical_or(tf.equal(x_n2_count,0),tf.equal(tf.math.count_nonzero(pos_avg_vec_i2),0))
-    #                         log_or_n2_nan = tf.math.logical_or(tf.is_nan(tf.reduce_sum(x_w3_n_i2)),tf.is_nan(tf.reduce_sum(pos_avg_vec_i2)))
-    #                         log_or_n2_net = tf.math.logical_or(log_or_n2, log_or_n2_nan)
-    #                         num_i2_ss = tf.cond(log_or_n2_net, lambda: x_zero_re, lambda: self.cos_sim(x_w3_n_i2,pos_avg_vec_i2,temp_fac))
-    #
-    #                         if(local_loss_exp_no==1):
-    #                             log_or_i1_i2 = tf.math.logical_or(tf.equal(x_n1_count,0),tf.equal(tf.math.count_nonzero(pos_avg_vec_i2),0))
-    #                             log_or_i1_i2_nan = tf.math.logical_or(tf.is_nan(tf.reduce_sum(x_w3_n_i1)),tf.is_nan(tf.reduce_sum(pos_avg_vec_i2)))
-    #                             log_or_i1_i2_net = tf.math.logical_or(log_or_i1_i2, log_or_i1_i2_nan)
-    #                             num_i1_i2_ss = tf.cond(log_or_i1_i2_net, lambda: x_zero_re, lambda: self.cos_sim(x_w3_n_i1,pos_avg_vec_i2,temp_fac))
-    #
-    #                             log_or_i2_i1 = tf.math.logical_or(tf.equal(x_n2_count,0),tf.equal(tf.math.count_nonzero(pos_avg_vec_i1),0))
-    #                             log_or_i2_i1_nan = tf.math.logical_or(tf.is_nan(tf.reduce_sum(x_w3_n_i2)),tf.is_nan(tf.reduce_sum(pos_avg_vec_i1)))
-    #                             log_or_i2_i1_net = tf.math.logical_or(log_or_i2_i1,log_or_i2_i1_nan)
-    #                             num_i2_i1_ss = tf.cond(log_or_i2_i1_net, lambda: x_zero_re, lambda: self.cos_sim(x_w3_n_i2,pos_avg_vec_i1,temp_fac))
-    #
-    #                         # Denominator loss terms of local loss
-    #                         den_i1_ss,den_i2_ss=0,0
-    #                         den_i1_i2_ss,den_i2_i1_ss=0,0
-    #
-    #                         #############################
-    #                         # compute loss for positive mean class pixels from mask of image 1 (x)
-    #                         # negatives from mask of image 1 (x)
-    #                         for neg_avg_i1_c1 in neg_mask1_list:
-    #                             log_or_n1_d1 = tf.math.logical_or(tf.equal(x_n1_count, 0),tf.equal(tf.math.count_nonzero(neg_avg_i1_c1), 0))
-    #                             log_or_n1_d1_nan = tf.math.logical_or(tf.is_nan(tf.reduce_sum(x_w3_n_i1)),tf.is_nan(tf.reduce_sum(neg_avg_i1_c1)))
-    #                             log_or_n1_d1_net = tf.math.logical_or(log_or_n1_d1,log_or_n1_d1_nan)
-    #                             den_i1_ss = den_i1_ss + tf.cond(log_or_n1_d1_net, lambda: x_zero_re,lambda: tf.exp(self.cos_sim(x_w3_n_i1, neg_avg_i1_c1, temp_fac)))
-    #
-    #                         # negatives from mask of image 2 (x')
-    #                         if (local_loss_exp_no == 1):
-    #                             for neg_avg_i1_c2 in neg_mask2_list:
-    #                                 log_or_n1_d2 = tf.math.logical_or(tf.equal(x_n1_count, 0),tf.equal(tf.math.count_nonzero(neg_avg_i1_c2), 0))
-    #                                 log_or_n1_d2_nan = tf.math.logical_or(tf.is_nan(tf.reduce_sum(x_w3_n_i1)),tf.is_nan(tf.reduce_sum(neg_avg_i1_c2)))
-    #                                 log_or_n1_d2_net = tf.math.logical_or(log_or_n1_d2,log_or_n1_d2_nan)
-    #                                 den_i1_ss = den_i1_ss + tf.cond(log_or_n1_d2_net, lambda: x_zero_re,lambda: tf.exp(self.cos_sim(x_w3_n_i1, neg_avg_i1_c2, temp_fac)))
-    #                         #############################
-    #
-    #                         #############################
-    #                         # compute loss for positive avg class pixels from mask of image 2 (x')
-    #                         # negatives from mask of image 2 (x')
-    #                         for neg_avg_i2_c2 in neg_mask2_list:
-    #                             log_or_n2_d2 = tf.math.logical_or(tf.equal(x_n2_count, 0),tf.equal(tf.math.count_nonzero(neg_avg_i2_c2),0))
-    #                             log_or_n2_d2_nan = tf.math.logical_or(tf.is_nan(tf.reduce_sum(x_w3_n_i2)),tf.is_nan(tf.reduce_sum(neg_avg_i2_c2)))
-    #                             log_or_n2_d2_net = tf.math.logical_or(log_or_n2_d2,log_or_n2_d2_nan)
-    #                             den_i2_ss = den_i2_ss + tf.cond(log_or_n2_d2_net, lambda: x_zero_re,lambda: tf.exp(self.cos_sim(x_w3_n_i2, neg_avg_i2_c2,temp_fac)))
-    #
-    #                         # negatives from mask of image 1 (x)
-    #                         if (local_loss_exp_no == 1):
-    #                             for neg_avg_i2_c1 in neg_mask1_list:
-    #                                 log_or_n2_d1 = tf.math.logical_or(tf.equal(x_n2_count, 0), tf.equal(tf.math.count_nonzero(neg_avg_i2_c1), 0))
-    #                                 log_or_n2_d1_nan = tf.math.logical_or(tf.is_nan(tf.reduce_sum(x_w3_n_i2)),tf.is_nan(tf.reduce_sum(neg_avg_i2_c1)))
-    #                                 log_or_n2_d1_net = tf.math.logical_or(log_or_n2_d1,log_or_n2_d1_nan)
-    #                                 den_i2_ss = den_i2_ss + tf.cond(log_or_n2_d1_net, lambda: x_zero_re,lambda: tf.exp(self.cos_sim(x_w3_n_i2, neg_avg_i2_c1,temp_fac)))
-    #
-    #                         log_num_i1_nan = tf.math.logical_or(tf.is_nan(tf.exp(num_i1_ss)),tf.is_nan(tf.exp(den_i1_ss)))
-    #                         log_num_i1_nan = tf.squeeze(log_num_i1_nan)
-    #                         log_num_i1_zero = tf.math.logical_or(tf.equal(tf.math.count_nonzero(num_i1_ss), 0),tf.equal(tf.math.count_nonzero(den_i1_ss), 0))
-    #                         log_num_i1_net = tf.math.logical_or(log_num_i1_zero, log_num_i1_nan)
-    #                         num_i1_loss = tf.cond(log_num_i1_net, lambda: x_zero_re, lambda: -tf.log(tf.math.reduce_sum(tf.exp(num_i1_ss))/(tf.math.reduce_sum(den_i1_ss))))
-    #                         local_loss = local_loss + num_i1_loss
-    #
-    #                         log_num_i2_nan = tf.math.logical_or(tf.is_nan(tf.exp(num_i2_ss)),tf.is_nan(tf.exp(den_i2_ss)))
-    #                         log_num_i2_nan = tf.squeeze(log_num_i2_nan)
-    #                         log_num_i2_zero = tf.math.logical_or(tf.equal(tf.math.count_nonzero(num_i2_ss), 0),tf.equal(tf.math.count_nonzero(den_i2_ss), 0))
-    #                         log_num_i2_net = tf.math.logical_or(log_num_i2_zero, log_num_i2_nan)
-    #                         num_i2_loss = tf.cond(log_num_i2_net, lambda: x_zero_re, lambda: -tf.log(tf.math.reduce_sum(tf.exp(num_i2_ss))/(tf.math.reduce_sum(den_i2_ss))))
-    #                         local_loss = local_loss + num_i2_loss
-    #                         if (local_loss_exp_no == 1):
-    #                             #local loss from feature map f(x) of image 1 (x)
-    #                             #log_num_i1_i2 = tf.math.logical_or(tf.equal(tf.math.reduce_sum(tf.exp(num_i1_i2_ss)),0),tf.equal((tf.math.reduce_sum(tf.exp(num_i1_i2_ss))+tf.math.reduce_sum(den_i1_ss)),0))
-    #                             log_num_i1_i2_nan = tf.math.logical_or(tf.is_nan(tf.exp(num_i1_i2_ss)),tf.is_nan(tf.exp(den_i1_ss)))
-    #                             log_num_i1_i2_nan = tf.squeeze(log_num_i1_i2_nan)
-    #                             log_num_i1_i2_zero = tf.math.logical_or(tf.equal(tf.math.count_nonzero(num_i1_i2_ss), 0),tf.equal(tf.math.count_nonzero(den_i1_ss), 0))
-    #                             log_num_i1_i2_net = tf.math.logical_or(log_num_i1_i2_zero, log_num_i1_i2_nan)
-    #                             #local_loss = local_loss + tf.cond(log_num_i1_i2_net, lambda: x_zero_re, lambda: -tf.log(tf.math.reduce_sum(tf.exp(num_i1_i2_ss))/(tf.math.reduce_sum(tf.exp(num_i1_i2_ss))+tf.math.reduce_sum(den_i1_ss))))
-    #                             local_loss = local_loss + tf.cond(log_num_i1_i2_net, lambda: x_zero_re, lambda: -tf.log(tf.math.reduce_sum(tf.exp(num_i1_i2_ss))/(tf.math.reduce_sum(den_i1_ss))))
-    #
-    #                             # local loss from feature map f(x') of image 2 (x')
-    #                             #log_num_i2_i1 = tf.math.logical_or(tf.equal(tf.math.reduce_sum(tf.exp(num_i2_i1_ss)),0),tf.equal((tf.math.reduce_sum(tf.exp(num_i2_i1_ss))+tf.math.reduce_sum(den_i2_ss)),0))
-    #                             log_num_i2_i1_nan = tf.math.logical_or(tf.is_nan(tf.exp(num_i2_i1_ss)),tf.is_nan(tf.exp(den_i2_ss)))
-    #                             log_num_i2_i1_nan = tf.squeeze(log_num_i2_i1_nan)
-    #                             log_num_i2_i1_zero = tf.math.logical_or(tf.equal(tf.math.count_nonzero(num_i2_i1_ss), 0),tf.equal(tf.math.count_nonzero(den_i2_ss), 0))
-    #                             log_num_i2_i1_net = tf.math.logical_or(log_num_i2_i1_zero,log_num_i2_i1_nan)
-    #                             #local_loss = local_loss + tf.cond(log_num_i2_i1_net, lambda: x_zero_re, lambda: -tf.log(tf.math.reduce_sum(tf.exp(num_i2_i1_ss))/(tf.math.reduce_sum(tf.exp(num_i2_i1_ss))+tf.math.reduce_sum(den_i2_ss))))
-    #                             local_loss = local_loss + tf.cond(log_num_i2_i1_net, lambda: x_zero_re, lambda: -tf.log(tf.math.reduce_sum(tf.exp(num_i2_i1_ss))/(tf.math.reduce_sum(den_i2_ss))))
-    #
-    #                 if (local_loss_exp_no == 1):
-    #                     local_loss=local_loss/(2*no_of_pos_eles*(num_classes-1))
-    #                 else:
-    #                     local_loss=local_loss/(no_of_pos_eles*(num_classes-1))
-    #
-    #             net_local_loss=local_loss/batch_size_ft
-    # cont_loss_cost=lamda_local * tf.reduce_mean(net_local_loss)
-    #                 seg_cost=tf.reduce_mean(seg_cost)
-    #                 net_cost= seg_cost + cont_loss_cost
 
 
 class DirectionalContrastiveLoss(nn.Module):
@@ -738,22 +478,24 @@ class HybridContrastiveLoss(nn.Module):
         self.weight_local = weight_local
         self.weight_directional = weight_directional
 
-    def forward(self, features, labels, directions=None):
+    def forward(
+            self, output_feat1, output_feat2, pseudo_label1, pseudo_label2,
+            pseudo_logits1, pseudo_logits2, output_ul1, output_ul2
+    ):
         """
         Compute the Hybrid Contrastive Loss.
         Args:
             features: Tensor of shape (N, C, H, W), feature maps.
             labels: Tensor of shape (N, H, W), ground truth or pseudo-labels.
-            directions: Tensor of shape (N, 2, H, W), directional vectors (optional, required for directional loss).
         Returns:
             torch.Tensor: Combined loss value.
         """
-        loss_pixel = self.pixel_loss(features, labels)
-        loss_local = self.local_loss(features, labels)
-        loss_directional = 0.0
-
-        if directions is not None:
-            loss_directional = self.directional_loss(features, labels, directions)
+        loss_pixel = self.pixel_loss(output_feat1, pseudo_label1)
+        loss_local = self.local_loss(output_feat1, pseudo_label1)
+        loss_directional = self.directional_loss(
+            output_feat1, output_feat2, pseudo_label1, pseudo_label2,
+            pseudo_logits1, pseudo_logits2, output_ul1, output_ul2
+        )
 
         combined_loss = (
             self.weight_pixel * loss_pixel +
@@ -808,218 +550,270 @@ class PixelContrastiveLoss(nn.Module):
             # hard: predict wrong
             for cls_id in this_classes:
                 if self.mining:
-                    hard_indices = ((this_y_hat == cls_id) & (this_y != cls_id)).nonzero()
-                    easy_indices = ((this_y_hat == cls_id) & (this_y == cls_id)).nonzero()
+                    try:
+                        hard_indices = ((this_y_hat == cls_id) & (this_y != cls_id)).nonzero()
+                        easy_indices = ((this_y_hat == cls_id) & (this_y == cls_id)).nonzero()
 
-                    num_hard = hard_indices.shape[0]
-                    num_easy = easy_indices.shape[0]
+                        num_hard = hard_indices.shape[0]
+                        num_easy = easy_indices.shape[0]
 
-                    if num_hard >= n_view / 2 and num_easy >= n_view / 2:
-                        num_hard_keep = n_view // 2
-                        num_easy_keep = n_view - num_hard_keep
-                    elif num_hard >= n_view / 2:
-                        num_easy_keep = num_easy
-                        num_hard_keep = n_view - num_easy_keep
-                    elif num_easy >= n_view / 2:
-                        num_hard_keep = num_hard
-                        num_easy_keep = n_view - num_hard_keep
-                    else:
-                        # Log.info('this shoud be never touched! {} {} {}'.format(num_hard, num_easy, n_view))
-                        raise Exception
+                        if num_hard >= n_view / 2 and num_easy >= n_view / 2:
+                            num_hard_keep = n_view // 2
+                            num_easy_keep = n_view - num_hard_keep
+                        elif num_hard >= n_view / 2:
+                            num_easy_keep = num_easy
+                            num_hard_keep = n_view - num_easy_keep
+                        elif num_easy >= n_view / 2:
+                            num_hard_keep = num_hard
+                            num_easy_keep = n_view - num_hard_keep
+                        else:
+                            # Log.info('this shoud be never touched! {} {} {}'.format(num_hard, num_easy, n_view))
+                            raise Exception
 
-                    perm = torch.randperm(num_hard)
-                    hard_indices = hard_indices[perm[:num_hard_keep]]
-                    perm = torch.randperm(num_easy)
-                    easy_indices = easy_indices[perm[:num_easy_keep]]
-                    indices = torch.cat((hard_indices, easy_indices), dim=0)
+                        perm = torch.randperm(num_hard)
+                        hard_indices = hard_indices[perm[:num_hard_keep]]
+                        perm = torch.randperm(num_easy)
+                        easy_indices = easy_indices[perm[:num_easy_keep]]
+                        indices = torch.cat((hard_indices, easy_indices), dim=0)
 
-                    X_[X_ptr, :, :] = X[ii, indices, :].squeeze(1)
-                    y_[X_ptr] = cls_id
-                    X_ptr += 1
+                        try:
+                            X_[X_ptr, :, :] = X[ii, indices, :].squeeze(1)
+                        except Exception as e:
+                            print(f"Error in _hard_anchor_sampling at X_[X_ptr, :, :] assignment: {e}")
+                            print(f"X_[X_ptr, :, :].shape: {X_[X_ptr, :, :].shape}, X[ii, indices, :].shape: {X[ii, indices, :].shape}")
+                            raise
+                        y_[X_ptr] = cls_id
+                        X_ptr += 1
+                    except Exception as e:
+                        print(f"Error in mining _hard_anchor_sampling: {e},"
+                              f"this_y_hat shape: {this_y_hat.shape}, this_y shape: {this_y.shape}")
+                        raise
                 else:
-                    num_indice = (this_y_hat == cls_id).nonzero()
-                    number = num_indice.shape[0]
-                    perm = torch.randperm(number)
-                    indices = num_indice[perm[:n_view]]
-                    X_[X_ptr, :, :] = X[ii, indices, :].squeeze(1)
-                    y_[X_ptr] = cls_id
-                    X_ptr += 1
+                    try:
+                        num_indice = (this_y_hat == cls_id).nonzero()
+                        number = num_indice.shape[0]
+                        perm = torch.randperm(number)
+                        indices = num_indice[perm[:n_view]]
+
+                        try:
+                            X_[X_ptr, :, :] = X[ii, indices, :].squeeze(1)
+                        except Exception as e:
+                            print(f"Error in _hard_anchor_sampling at X_[X_ptr, :, :] assignment: {e}")
+                            print(f"X_[X_ptr, :, :].shape: {X_[X_ptr, :, :].shape}, X[ii, indices, :].shape: {X[ii, indices, :].shape}")
+                            raise
+                        y_[X_ptr] = cls_id
+                        X_ptr += 1
+                    except Exception as e:
+                        print(f"Error in mining _hard_anchor_sampling (line 814): {e},"
+                              f"this_y_hat shape: {this_y_hat.shape}, this_y shape: {this_y.shape}, "
+                              f"cls_id: {cls_id}, hard_indices shape: {hard_indices.shape}, "
+                              f"easy_indices shape: {easy_indices.shape}")
+                        raise
         return X_, y_
 
     def _hard_pair_sample_mining(self, X, X_2, y_hat, y, mask=None):
+        try:
+            batch_size, feat_dim = X.shape[0], X.shape[-1]
+            if mask is not None:
+                y_hat = mask * y_hat + (1 - mask) * 255
+            classes = []
+            total_classes = 0
+            # filter each image, to find what class they have num > self.max_view pixel
+            for ii in range(batch_size):
+                this_y = y_hat[ii]
+                this_classes = torch.unique(this_y)
+                this_classes = [x for x in this_classes if x > 0 and x != self.ignore_label]
+                this_classes = [x for x in this_classes if (this_y == x).nonzero().shape[0] > self.max_views]
 
-        batch_size, feat_dim = X.shape[0], X.shape[-1]
-        if mask is not None:
-            y_hat = mask * y_hat + (1 - mask) * 255
-        classes = []
-        total_classes = 0
-        # filter each image, to find what class they have num > self.max_view pixel
-        for ii in range(batch_size):
-            this_y = y_hat[ii]
-            this_classes = torch.unique(this_y)
-            this_classes = [x for x in this_classes if x > 0 and x != self.ignore_label]
-            this_classes = [x for x in this_classes if (this_y == x).nonzero().shape[0] > self.max_views]
+                classes.append(this_classes)
+                total_classes += len(this_classes)
 
-            classes.append(this_classes)
-            total_classes += len(this_classes)
+            if total_classes == 0:
+                return None, None, None
 
-        if total_classes == 0:
-            return None, None, None
+            # n_view = self.max_samples // total_classes
+            # n_view = min(n_view, self.max_views)
+            n_view = self.max_views
+            X_ = torch.zeros((total_classes, n_view, feat_dim), dtype=torch.float).cuda()
+            X_2_ = torch.zeros((total_classes, n_view, feat_dim), dtype=torch.float).cuda()
+            y_ = torch.zeros(total_classes, dtype=torch.float).cuda()
 
-        # n_view = self.max_samples // total_classes
-        # n_view = min(n_view, self.max_views)
-        n_view = self.max_views
-        X_ = torch.zeros((total_classes, n_view, feat_dim), dtype=torch.float).cuda()
-        X_2_ = torch.zeros((total_classes, n_view, feat_dim), dtype=torch.float).cuda()
-        y_ = torch.zeros(total_classes, dtype=torch.float).cuda()
+            X_ptr = 0
+            for ii in range(batch_size):
+                this_y_hat = y_hat[ii]
+                this_y = y[ii]
+                this_classes = classes[ii]
+                # hard: predict wrong
+                for cls_id in this_classes:
+                    if self.mining:
+                        hard_indices = ((this_y_hat == cls_id) & (this_y != cls_id)).nonzero()
+                        easy_indices = ((this_y_hat == cls_id) & (this_y == cls_id)).nonzero()
 
-        X_ptr = 0
-        for ii in range(batch_size):
-            this_y_hat = y_hat[ii]
-            this_y = y[ii]
-            this_classes = classes[ii]
-            # hard: predict wrong
-            for cls_id in this_classes:
-                if self.mining:
-                    hard_indices = ((this_y_hat == cls_id) & (this_y != cls_id)).nonzero()
-                    easy_indices = ((this_y_hat == cls_id) & (this_y == cls_id)).nonzero()
+                        num_hard = hard_indices.shape[0]
+                        num_easy = easy_indices.shape[0]
 
-                    num_hard = hard_indices.shape[0]
-                    num_easy = easy_indices.shape[0]
+                        if num_hard >= n_view / 2 and num_easy >= n_view / 2:
+                            num_hard_keep = n_view // 2
+                            num_easy_keep = n_view - num_hard_keep
+                        elif num_hard >= n_view / 2:
+                            num_easy_keep = num_easy
+                            num_hard_keep = n_view - num_easy_keep
+                        elif num_easy >= n_view / 2:
+                            num_hard_keep = num_hard
+                            num_easy_keep = n_view - num_hard_keep
+                        else:
+                            # Log.info('this shoud be never touched! {} {} {}'.format(num_hard, num_easy, n_view))
+                            raise Exception
 
-                    if num_hard >= n_view / 2 and num_easy >= n_view / 2:
-                        num_hard_keep = n_view // 2
-                        num_easy_keep = n_view - num_hard_keep
-                    elif num_hard >= n_view / 2:
-                        num_easy_keep = num_easy
-                        num_hard_keep = n_view - num_easy_keep
-                    elif num_easy >= n_view / 2:
-                        num_hard_keep = num_hard
-                        num_easy_keep = n_view - num_hard_keep
+                        perm = torch.randperm(num_hard)
+                        hard_indices = hard_indices[perm[:num_hard_keep]]
+                        perm = torch.randperm(num_easy)
+                        easy_indices = easy_indices[perm[:num_easy_keep]]
+                        indices = torch.cat((hard_indices, easy_indices), dim=0)
+
+                        try:
+                            X_[X_ptr, :, :] = X[ii, indices, :].squeeze(1)
+                            X_2_[X_ptr, :, :] = X_2[ii, indices, :].squeeze(1)
+                        except Exception as e:
+                            print(f"Error in _hard_pair_sample_mining at X_ or X_2_ assignment: {e}")
+                            print(f"X_[X_ptr, :, :].shape: {X_[X_ptr, :, :].shape}, X[ii, indices, :].shape: {X[ii, indices, :].shape}")
+                            print(f"X_2_[X_ptr, :, :].shape: {X_2_[X_ptr, :, :].shape}, X_2[ii, indices, :].shape: {X_2[ii, indices, :].shape}")
+                            raise
+                        y_[X_ptr] = cls_id
+                        X_ptr += 1
                     else:
-                        # Log.info('this shoud be never touched! {} {} {}'.format(num_hard, num_easy, n_view))
-                        raise Exception
 
-                    perm = torch.randperm(num_hard)
-                    hard_indices = hard_indices[perm[:num_hard_keep]]
-                    perm = torch.randperm(num_easy)
-                    easy_indices = easy_indices[perm[:num_easy_keep]]
-                    indices = torch.cat((hard_indices, easy_indices), dim=0)
+                        num_indice = (this_y_hat == cls_id).nonzero()
+                        number = num_indice.shape[0]
+                        perm = torch.randperm(number)
+                        indices = num_indice[perm[:n_view]]
 
-                    X_[X_ptr, :, :] = X[ii, indices, :].squeeze(1)
-                    X_2_[X_ptr, :, :] = X_2[ii, indices, :].squeeze(1)
-                    y_[X_ptr] = cls_id
-                    X_ptr += 1
-                else:
+                        try:
+                            X_[X_ptr, :, :] = X[ii, indices, :].squeeze(1)
+                            X_2_[X_ptr, :, :] = X_2[ii, indices, :].squeeze(1)
+                        except Exception as e:
+                            print(f"Error in _hard_pair_sample_mining at X_ or X_2_ assignment: {e}")
+                            print(f"X_[X_ptr, :, :].shape: {X_[X_ptr, :, :].shape}, X[ii, indices, :].shape: {X[ii, indices, :].shape}")
+                            print(f"X_2_[X_ptr, :, :].shape: {X_2_[X_ptr, :, :].shape}, X_2[ii, indices, :].shape: {X_2[ii, indices, :].shape}")
+                            raise
+                        y_[X_ptr] = cls_id
+                        X_ptr += 1
 
-                    num_indice = (this_y_hat == cls_id).nonzero()
-                    number = num_indice.shape[0]
-                    perm = torch.randperm(number)
-                    indices = num_indice[perm[:n_view]]
-                    X_[X_ptr, :, :] = X[ii, indices, :].squeeze(1)
-                    X_2_[X_ptr, :, :] = X_2[ii, indices, :].squeeze(1)
-                    y_[X_ptr] = cls_id
-                    X_ptr += 1
-
-        return X_, X_2_, y_
+            return X_, X_2_, y_
+        except Exception as e:
+            print(f"Error in _hard_pair_sample_mining: {e}")
+            raise
 
     def _contrastive(self, feats_, labels_):
-        anchor_num, n_view = feats_.shape[0], feats_.shape[1]
+        try:
+            anchor_num, n_view = feats_.shape[0], feats_.shape[1]
 
-        labels_ = labels_.contiguous().view(-1, 1)
-        mask = torch.eq(labels_, torch.transpose(labels_, 0, 1)).float().cuda()
+            labels_ = labels_.contiguous().view(-1, 1)
+            mask = torch.eq(labels_, torch.transpose(labels_, 0, 1)).float().cuda()
 
-        contrast_count = n_view
-        # the reason for use unbind is that they need to repeat mask n_view times later
-        # 对于每个class的样本，它有(n_view - 1)* ptr中有cls的图片的个数 个 正样本
-        # 有 n_view * (ptr- cls的次数)个负样本
-        contrast_feature = torch.cat(torch.unbind(feats_, dim=1), dim=0)
+            contrast_count = n_view
+            # the reason for use unbind is that they need to repeat mask n_view times later
+            # 对于每个class的样本，它有(n_view - 1)* ptr中有cls的图片的个数 个 正样本
+            # 有 n_view * (ptr- cls的次数)个负样本
+            contrast_feature = torch.cat(torch.unbind(feats_, dim=1), dim=0)
 
-        anchor_feature = contrast_feature
-        anchor_count = contrast_count
+            anchor_feature = contrast_feature
+            anchor_count = contrast_count
 
-        anchor_dot_contrast = torch.div(torch.matmul(anchor_feature, torch.transpose(contrast_feature, 0, 1)),
-                                        self.temperature)
-        # max是自身
-        logits_max, _ = torch.max(anchor_dot_contrast, dim=1, keepdim=True)
-        logits = anchor_dot_contrast - logits_max.detach()
+            anchor_dot_contrast = torch.div(torch.matmul(anchor_feature, torch.transpose(contrast_feature, 0, 1)),
+                                            self.temperature)
+            # max是自身
+            logits_max, _ = torch.max(anchor_dot_contrast, dim=1, keepdim=True)
+            logits = anchor_dot_contrast - logits_max.detach()
 
-        mask = mask.repeat(anchor_count, contrast_count)
-        neg_mask = 1 - mask
-        # set self = 0
-        logits_mask = torch.ones_like(mask).scatter_(1,
-                                                     torch.arange(anchor_num * anchor_count).view(-1, 1).cuda(),
-                                                     0)
-        mask = mask * logits_mask
-
-        neg_logits = torch.exp(logits) * neg_mask
-        neg_logits = neg_logits.sum(1, keepdim=True)
-
-        exp_logits = torch.exp(logits)
-
-        log_prob = logits - torch.log(exp_logits + neg_logits)
-
-        mean_log_prob_pos = (mask * log_prob).sum(1) / mask.sum(1)
-
-        loss = - (self.temperature / self.base_temperature) * mean_log_prob_pos
-        loss = loss.mean()
-
-        return loss
-
-    def _contrastive_pair(self, feats_, feats_t, labels_, labels_t):
-        anchor_num, n_view = feats_.shape[0], feats_.shape[1]
-        anchor_num_t, n_view_t = feats_t.shape[0], feats_t.shape[1]
-        labels_ = labels_.contiguous().view(-1, 1)
-        labels_t = labels_t.contiguous().view(-1, 1)
-        mask = torch.eq(labels_, torch.transpose(labels_t, 0, 1)).float().cuda()
-
-        contrast_count = n_view_t
-        # the reason for use unbind is that they need to repeat mask n_view times later
-        # 对于每个class的样本，它有(n_view - 1)* ptr中有cls的图片的个数 个 正样本
-        # 有 n_view * (ptr- cls的次数)个负样本
-        contrast_feature = torch.cat(torch.unbind(feats_, dim=1), dim=0)
-        contrast_feature_t = torch.cat(torch.unbind(feats_t, dim=1), dim=0)
-        anchor_feature = contrast_feature
-        anchor_count = n_view
-
-        anchor_dot_contrast = torch.div(
-            torch.matmul(anchor_feature, torch.transpose(contrast_feature_t.detach(), 0, 1)),
-            self.temperature)
-        # max是自身
-        logits_max, _ = torch.max(anchor_dot_contrast, dim=1, keepdim=True)
-        logits = anchor_dot_contrast - logits_max.detach()
-
-        mask = mask.repeat(anchor_count, contrast_count)
-        neg_mask = 1 - mask
-        # set self = 0
-        if anchor_num == anchor_num_t:
+            mask = mask.repeat(anchor_count, contrast_count)
+            neg_mask = 1 - mask
+            # set self = 0
             logits_mask = torch.ones_like(mask).scatter_(1,
                                                          torch.arange(anchor_num * anchor_count).view(-1, 1).cuda(),
                                                          0)
             mask = mask * logits_mask
 
-        neg_logits = torch.exp(logits) * neg_mask
-        neg_logits = neg_logits.sum(1, keepdim=True)
+            neg_logits = torch.exp(logits) * neg_mask
+            neg_logits = neg_logits.sum(1, keepdim=True)
 
-        exp_logits = torch.exp(logits)
+            exp_logits = torch.exp(logits)
 
-        log_prob = logits - torch.log(exp_logits + neg_logits)
+            log_prob = logits - torch.log(exp_logits + neg_logits)
 
-        mean_log_prob_pos = (mask * log_prob).sum(1) / mask.sum(1)
+            mean_log_prob_pos = (mask * log_prob).sum(1) / mask.sum(1)
 
-        loss = - (self.temperature / self.base_temperature) * mean_log_prob_pos
-        loss = loss.mean()
+            loss = - (self.temperature / self.base_temperature) * mean_log_prob_pos
+            loss = loss.mean()
 
-        return loss
+            return loss
+        except Exception as e:
+            print(f"Error in _contrastive: {e}")
+            print(f"mask.shape: {mask.shape}, anchor_count: {anchor_count}, contrast_count: {contrast_count}")
+            raise
+
+    def _contrastive_pair(self, feats_, feats_t, labels_, labels_t):
+        try:
+            anchor_num, n_view = feats_.shape[0], feats_.shape[1]
+            anchor_num_t, n_view_t = feats_t.shape[0], feats_t.shape[1]
+            labels_ = labels_.contiguous().view(-1, 1)
+            labels_t = labels_t.contiguous().view(-1, 1)
+            mask = torch.eq(labels_, torch.transpose(labels_t, 0, 1)).float().cuda()
+
+            contrast_count = n_view_t
+            # the reason for use unbind is that they need to repeat mask n_view times later
+            # 对于每个class的样本，它有(n_view - 1)* ptr中有cls的图片的个数 个 正样本
+            # 有 n_view * (ptr- cls的次数)个负样本
+            contrast_feature = torch.cat(torch.unbind(feats_, dim=1), dim=0)
+            contrast_feature_t = torch.cat(torch.unbind(feats_t, dim=1), dim=0)
+            anchor_feature = contrast_feature
+            anchor_count = n_view
+
+            anchor_dot_contrast = torch.div(
+                torch.matmul(anchor_feature, torch.transpose(contrast_feature_t.detach(), 0, 1)),
+                self.temperature)
+            # max是自身
+            logits_max, _ = torch.max(anchor_dot_contrast, dim=1, keepdim=True)
+            logits = anchor_dot_contrast - logits_max.detach()
+
+            mask = mask.repeat(anchor_count, contrast_count)
+            neg_mask = 1 - mask
+            # set self = 0
+            if anchor_num == anchor_num_t:
+                logits_mask = torch.ones_like(mask).scatter_(1,
+                                                             torch.arange(anchor_num * anchor_count).view(-1, 1).cuda(),
+                                                             0)
+                mask = mask * logits_mask
+
+            neg_logits = torch.exp(logits) * neg_mask
+            neg_logits = neg_logits.sum(1, keepdim=True)
+
+            exp_logits = torch.exp(logits)
+
+            log_prob = logits - torch.log(exp_logits + neg_logits)
+
+            mean_log_prob_pos = (mask * log_prob).sum(1) / mask.sum(1)
+
+            loss = - (self.temperature / self.base_temperature) * mean_log_prob_pos
+            loss = loss.mean()
+
+            return loss
+        except Exception as e:
+            print(f"Error in _contrastive_pair: {e}")
+            print(f"mask.shape: {mask.shape}, anchor_count: {anchor_count}, contrast_count: {contrast_count}")
+            raise
 
     def forward(self, features, feats_t=None, labels=None, predict=None, cb_mask=None):
         # feat from student, feats_2 from teacher if have
 
         labels = labels.unsqueeze(1).float().clone()
-        labels = torch.nn.functional.interpolate(labels,
-                                                 (features.shape[2], features.shape[3]), mode='nearest')
+        labels = torch.nn.functional.interpolate(labels,(features.shape[2], features.shape[3]), mode='nearest')
         labels = labels.squeeze(1).long()
         assert labels.shape[-1] == features.shape[-1], '{} {}'.format(labels.shape, features.shape)
+        predict = predict.unsqueeze(1).float()
+        predict = F.interpolate(predict, (features.shape[2], features.shape[3]), mode='nearest')
+        predict = predict.squeeze(1).long()
+
         if cb_mask is not None:
             mask_batch = cb_mask.shape[0]
             batch, _, h, w = features.shape
@@ -1045,12 +839,10 @@ class PixelContrastiveLoss(nn.Module):
             if self.memory_bank is not None:
                 self.memory_bank.dequeue_and_enqueue(feats_, labels_)
                 feats_t_, labels_t_ = self.memory_bank.get_valid_feat_and_label()
-
                 loss = self._contrastive_pair(feats_, feats_t_, labels_, labels_t_)
             else:
                 loss = self._contrastive(feats_, labels_)
         else:
-
             feats_t = feats_t.permute(0, 2, 3, 1)
             feats_t = feats_t.contiguous().view(feats_t.shape[0], -1, feats_t.shape[-1])
             feats_t = F.normalize(feats_t, dim=2)
@@ -1061,7 +853,6 @@ class PixelContrastiveLoss(nn.Module):
                 return loss
 
             if self.memory_bank is not None:
-
                 self.memory_bank.dequeue_and_enqueue(feats_t_, labels_)
                 feats_t_, labels_t_ = self.memory_bank.get_valid_feat_and_label()
 
