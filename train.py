@@ -32,13 +32,14 @@ def get_random_crop_coords(img_h, img_w, crop_h, crop_w):
     return top, left
 
 def train(
-        num_folds=6, num_epochs=50, batch_size=8, threshold=0.5,
+        num_folds=6, num_epochs=40, batch_size=8, threshold=0.5,
         learning_rate=0.001, temperature=0.1, neighborhood_size=5,
         weight_pixel=1.0, weight_local=1.0, weight_directional=1.0,
         supervised_loss='cross_entropy', contrastive_loss='pixel',
         dynamic_threshold=True, class_balanced=True,
         ema_decay=0.99, lambda_contrast=0.1
 ):
+    torch.autograd.set_detect_anomaly(True)
     dist.init_process_group(backend="nccl")
     local_rank = dist.get_rank()
     torch.cuda.set_device(local_rank)
@@ -48,7 +49,6 @@ def train(
     teacher_model = deepcopy(student_model).to(device)
     teacher_model.eval()
     student_model = DDP(student_model, device_ids=[local_rank])
-
     optimizer = optim.Adam(student_model.parameters(), lr=learning_rate, weight_decay=5e-4)
 
     if supervised_loss == 'cross_entropy':
@@ -131,158 +131,176 @@ def train(
 
             semi_supervised_loss = 0
             pseudo_batches_count = 0
-            if epoch >= 0:  # if epoch>10
-                try:
-                    pseudo_labeler = pseudo_labeling.PseudoLabelGenerator(
-                        teacher_model=teacher_model,
-                        threshold=threshold,
-                        device=device,
-                        dynamic_threshold=dynamic_threshold,
-                        class_balanced=class_balanced,
-                        s=0.8,
-                        beta=0.9,
-                        class_threshold_ema=class_threshold_ema
-                    )
-                    pseudo_batches = pseudo_labeler(unlabeled_dataloader)
+            if epoch >= 10:
+                pseudo_labeler = pseudo_labeling.PseudoLabelGenerator(
+                    teacher_model=teacher_model,
+                    threshold=threshold,
+                    device=device,
+                    dynamic_threshold=dynamic_threshold,
+                    class_balanced=class_balanced,
+                    s=0.8,
+                    beta=0.9,
+                    class_threshold_ema=class_threshold_ema
+                )
+                pseudo_batches = pseudo_labeler(unlabeled_dataloader)
 
-                    for images, pseudo_labels in tqdm(
-                            pseudo_batches,
-                            desc=f"Epoch {epoch + 1}/{num_epochs} - Semi-supervised"
-                    ):
-                        try:
-                            images, pseudo_labels = images.to(device), pseudo_labels.to(device)
-                            student_model.train()
-                            if contrastive_loss in ['directional', 'hybrid']:
-                                # Generate two crops with overlap
-                                b, c, H, W = images.shape
-                                crop_h, crop_w = 256, 256
+                for images, pseudo_labels in tqdm(
+                        pseudo_batches,
+                        desc=f"Epoch {epoch + 1}/{num_epochs} - Semi-supervised"
+                ):
+                    images, pseudo_labels = images.to(device), pseudo_labels.to(device)
+                    student_model.train()
+                    if contrastive_loss in ['directional', 'hybrid']:
+                        # Generate two crops with overlap
+                        b, c, H, W = images.shape
+                        crop_h, crop_w = 320, 320
 
-                                top1, left1 = get_random_crop_coords(H, W, crop_h, crop_w)
-                                top2, left2 = get_random_crop_coords(H, W, crop_h, crop_w)
+                        top1, left1 = get_random_crop_coords(H, W, crop_h, crop_w)
+                        top2, left2 = get_random_crop_coords(H, W, crop_h, crop_w)
 
-                                overlap_top = max(top1, top2)
-                                overlap_left = max(left1, left2)
-                                overlap_bottom = min(top1 + crop_h, top2 + crop_h)
-                                overlap_right = min(left1 + crop_w, left2 + crop_w)
+                        overlap_top = max(top1, top2)
+                        overlap_left = max(left1, left2)
+                        overlap_bottom = min(top1 + crop_h, top2 + crop_h)
+                        overlap_right = min(left1 + crop_w, left2 + crop_w)
 
-                                if overlap_bottom - overlap_top <= 0 or overlap_right - overlap_left <= 0:
-                                    continue  # No valid overlap
+                        if overlap_bottom - overlap_top <= 0 or overlap_right - overlap_left <= 0:
+                            continue  # No valid overlap
 
-                                xu1 = images[:, :, top1:top1 + crop_h, left1:left1 + crop_w]
-                                xu2 = images[:, :, top2:top2 + crop_h, left2:left2 + crop_w]
+                        xu1 = images[:, :, top1:top1 + crop_h, left1:left1 + crop_w]
+                        xu2 = images[:, :, top2:top2 + crop_h, left2:left2 + crop_w]
 
-                                low_level_augment = T.Compose([
-                                    T.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
-                                    T.RandomGrayscale(p=0.2),
-                                    T.GaussianBlur(kernel_size=3, sigma=(0.1, 2.0))
-                                ])
-                                xu1_aug = torch.stack([
-                                    TF.to_tensor(low_level_augment(TF.to_pil_image(img.cpu())))
-                                    for img in xu1
-                                ])
-                                xu2_aug = torch.stack([
-                                    TF.to_tensor(low_level_augment(TF.to_pil_image(img.cpu())))
-                                    for img in xu2
-                                ])
-                                xu1 = xu1_aug.to(device)
-                                xu2 = xu2_aug.to(device)
+                        low_level_augment = T.Compose([
+                            T.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+                            T.RandomGrayscale(p=0.2),
+                            T.GaussianBlur(kernel_size=3, sigma=(0.1, 2.0))
+                        ])
+                        xu1_aug = torch.stack([
+                            TF.to_tensor(low_level_augment(TF.to_pil_image(img.cpu())))
+                            for img in xu1
+                        ])
+                        xu2_aug = torch.stack([
+                            TF.to_tensor(low_level_augment(TF.to_pil_image(img.cpu())))
+                            for img in xu2
+                        ])
+                        xu1 = xu1_aug.to(device).clone()
+                        xu2 = xu2_aug.to(device).clone()
 
-                                # Pass through model
-                                logits1, feat1 = student_model(xu1, feature_maps=True)
-                                logits2, feat2 = student_model(xu2, feature_maps=True)
+                        # Pass through model
+                        logits1, feat1 = student_model(xu1, feature_maps=True)
+                        logits2, feat2 = student_model(xu2, feature_maps=True)
+                        feat1 = feat1.clone()
+                        feat2 = feat2.clone()
+                        logits1 = logits1.clone()
+                        logits2 = logits2.clone()
 
-                                pseudo_label1 = torch.argmax(logits1, dim=1)
-                                pseudo_label2 = torch.argmax(logits2, dim=1)
+                        pseudo_label1 = torch.argmax(logits1, dim=1)
+                        predicted_labels = pseudo_label1
+                        pseudo_label2 = torch.argmax(logits2, dim=1)
 
-                                pseudo_logits1 = F.softmax(logits1, dim=1).max(1)[0]
-                                pseudo_logits2 = F.softmax(logits2, dim=1).max(1)[0]
+                        with torch.no_grad():
+                            dummy_ce = F.cross_entropy(logits1.detach(), pseudo_label1.detach(), ignore_index=255)
 
-                                # Extract overlapping regions in features
-                                o_top = overlap_top - top1
-                                o_left = overlap_left - left1
-                                o_bottom = o_top + (overlap_bottom - overlap_top)
-                                o_right = o_left + (overlap_right - overlap_left)
+                        pseudo_logits1 = F.softmax(logits1, dim=1).max(1)[0].clone()
+                        pseudo_logits2 = F.softmax(logits2, dim=1).max(1)[0].clone()
 
-                                o2_top = overlap_top - top2
-                                o2_left = overlap_left - left2
-                                o2_bottom = o2_top + (overlap_bottom - overlap_top)
-                                o2_right = o2_left + (overlap_right - overlap_left)
+                        # Extract overlapping regions in features and scale them to match feature map resolution
+                        stride = 8
+                        o_top = (overlap_top - top1) // stride
+                        o_left = (overlap_left - left1) // stride
+                        o_bottom = o_top + (overlap_bottom - overlap_top) // stride
+                        o_right = o_left + (overlap_right - overlap_left) // stride
 
-                                output_feat1 = feat1[:, :, o_top:o_bottom, o_left:o_right].reshape(b, -1,feat1.shape[1])
-                                output_feat2 = feat2[:, :, o2_top:o2_bottom, o2_left:o2_right].reshape(b, -1,feat2.shape[1])
+                        o2_top = (overlap_top - top2) // stride
+                        o2_left = (overlap_left - left2) // stride
+                        o2_bottom = o2_top + (overlap_bottom - overlap_top) // stride
+                        o2_right = o2_left + (overlap_right - overlap_left) // stride
 
-                                label1 = pseudo_label1[:, o_top:o_bottom, o_left:o_right].reshape(b, -1)
-                                label2 = pseudo_label2[:, o2_top:o2_bottom, o2_left:o2_right].reshape(b, -1)
-                                conf1 = pseudo_logits1[:, o_top:o_bottom, o_left:o_right].reshape(b, -1)
-                                conf2 = pseudo_logits2[:, o2_top:o2_bottom, o2_left:o2_right].reshape(b, -1)
+                        # Check if overlap is still valid after scaling
+                        if (o_bottom - o_top <= 0) or (o_right - o_left <= 0):
+                            print("batch skipped as overlap is too small after scaling")
+                            continue
 
-                                if (o_bottom - o_top <= 0) or (o_right - o_left <= 0):
-                                    print("batch skipped as overlap is too small")
-                                    continue  # Skip batch if overlap is too small
+                        # Extract overlapping feature regions
+                        output_feat1 = feat1[:, :, o_top:o_bottom, o_left:o_right].clone()
+                        output_feat2 = feat2[:, :, o2_top:o2_bottom, o2_left:o2_right].clone()
 
-                                output_feat1 = output_feat1.view(-1, feat1.shape[1])
-                                output_feat2 = output_feat2.view(-1, feat2.shape[1])
-                                label1 = label1.view(-1)
-                                label2 = label2.view(-1)
-                                conf1 = conf1.view(-1)
-                                conf2 = conf2.view(-1)
-                            else:
-                                logits, features = student_model(images, feature_maps=True)
-                                predicted_labels = torch.argmax(logits, dim=1)
-                        except Exception as e:
-                            print(f"Error during model prediction: {e}, images shape: {images.shape},"
-                                  f" pseudo_labels shape: {pseudo_labels.shape}")
-                            raise
+                        if output_feat1.shape != output_feat2.shape:
+                            print(
+                                f"Shape mismatch in overlapping feature regions: {output_feat1.shape} vs {output_feat2.shape}")
+                            continue
 
-                        # Compute contrastive loss
-                        if contrastive_loss == 'pixel':
-                            unsup_loss = contrastive_loss_fn(
-                                features=features, labels=pseudo_labels, predict=predicted_labels
-                            )
-                        elif contrastive_loss == 'directional':
-                            unsup_loss = contrastive_loss_fn(
-                                output_feat1=output_feat1, output_feat2=output_feat2,
-                                pseudo_label1=label1, pseudo_label2=label2,
-                                pseudo_logits1=conf1, pseudo_logits2=conf2,
-                                output_ul1=feat1, output_ul2=feat2
-                            )
+                        b, c, h, w = output_feat1.shape
+                        output_feat1 = output_feat1.permute(0, 2, 3, 1).reshape(b * h * w, c)
+                        output_feat2 = output_feat2.permute(0, 2, 3, 1).reshape(b * h * w, c)
 
-                        elif contrastive_loss == "local":
-                            print('dimensions of psuedo_labels just before local contr.', pseudo_labels.dim())
-                            if pseudo_labels.dim() == 2:
-                                B = features.size(0)
-                                H, W = features.size(2), features.size(3)
-                                pseudo_labels = pseudo_labels.view(B, H, W)
-                            unsup_loss = contrastive_loss_fn(features=features, labels=pseudo_labels)
-                        elif contrastive_loss == "hybrid":
-                            unsup_loss = contrastive_loss_fn(
-                                output_feat1=output_feat1, output_feat2=output_feat2,
-                                pseudo_label1=label1, pseudo_label2=label2,
-                                pseudo_logits1=conf1, pseudo_logits2=conf2,
-                                output_ul1=feat1, output_ul2=feat2
-                            )
-                        else:
-                            raise NotImplementedError(f"Unsupported contrastive_loss: {contrastive_loss}")
+                        # Resize pseudo labels and logits to match feature map size
+                        pseudo_label1 = F.interpolate(
+                            pseudo_label1.unsqueeze(1).float(), size=feat1.shape[2:], mode='nearest'
+                        ).squeeze(1).long()
+                        pseudo_label2 = F.interpolate(
+                            pseudo_label2.unsqueeze(1).float(), size=feat2.shape[2:], mode='nearest'
+                        ).squeeze(1).long()
 
-                        try:
-                            # Dummy supervised CE loss to keep classifier parameters active
+                        pseudo_logits1 = F.interpolate(
+                            pseudo_logits1.unsqueeze(1), size=feat1.shape[2:], mode='bilinear', align_corners=False
+                        ).squeeze(1)
+                        pseudo_logits2 = F.interpolate(
+                            pseudo_logits2.unsqueeze(1), size=feat2.shape[2:], mode='bilinear', align_corners=False
+                        ).squeeze(1)
+
+                        label1 = pseudo_label1[:, o_top:o_bottom, o_left:o_right].reshape(-1)
+                        label2 = pseudo_label2[:, o2_top:o2_bottom, o2_left:o2_right].reshape(-1)
+                        conf1 = pseudo_logits1[:, o_top:o_bottom, o_left:o_right].reshape(-1)
+                        conf2 = pseudo_logits2[:, o2_top:o2_bottom, o2_left:o2_right].reshape(-1)
+
+                        if output_feat1.numel() == 0 or output_feat2.numel() == 0:
+                            print("Skipping directional contrastive loss due to empty overlapping region")
+                            continue
+                    else:
+                        logits, features = student_model(images, feature_maps=True)
+                        logits = logits.clone()
+                        features = features.clone()
+                        predicted_labels = torch.argmax(logits, dim=1)
+                        with torch.no_grad():
                             dummy_ce = F.cross_entropy(logits, pseudo_labels, ignore_index=255)
-                            unsup_loss += 0.0 * dummy_ce
-                            total_loss = lambda_contrast * unsup_loss
 
-                            optimizer.zero_grad()
-                            total_loss.backward()
-                            optimizer.step()
-                            # scheduler.step()
-                            semi_supervised_loss += unsup_loss.item()
-                            pseudo_batches_count += 1
-                            class_threshold_ema = pseudo_labeler.get_ema_thresholds()
-                        except Exception as e:
-                            print(f"Error during optimization step: {e}")
-                            raise
-                except Exception as e:
-                    print(f"Error during semi-supervised training: {e}")
-                    raise
+                    # Compute contrastive loss
+                    if contrastive_loss == 'pixel':
+                        unsup_loss = contrastive_loss_fn(
+                            features=features, labels=pseudo_labels, predict=predicted_labels
+                        )
+                    elif contrastive_loss == 'directional':
+                        unsup_loss = contrastive_loss_fn(
+                            output_feat1=output_feat1, output_feat2=output_feat2,
+                            pseudo_label1=label1, pseudo_label2=label2,
+                            pseudo_logits1=conf1, pseudo_logits2=conf2,
+                            output_ul1=feat1, output_ul2=feat2
+                        )
+                    elif contrastive_loss == "local":
+                        unsup_loss = contrastive_loss_fn(features=features, labels=pseudo_labels)
+                    elif contrastive_loss == "hybrid":
+                        unsup_loss = contrastive_loss_fn(
+                            output_feat1=output_feat1, output_feat2=output_feat2,
+                            pseudo_label1=label1, pseudo_label2=label2,
+                            pseudo_logits1=conf1, pseudo_logits2=conf2,
+                            output_ul1=feat1, output_ul2=feat2,
+                            predicted_labels=predicted_labels
+                        )
+                    else:
+                        raise NotImplementedError(f"Unsupported contrastive_loss: {contrastive_loss}")
+
+                    # Dummy supervised CE loss to keep classifier parameters active
+                    unsup_loss = unsup_loss + 0.0 * dummy_ce
+                    total_loss = lambda_contrast * unsup_loss
+
+                    optimizer.zero_grad()
+                    total_loss.backward()
+                    optimizer.step()
+                    # scheduler.step()
+                    semi_supervised_loss += unsup_loss.item()
+                    pseudo_batches_count += 1
+                    class_threshold_ema = pseudo_labeler.get_ema_thresholds()
+
 
             # Update teacher model using EMA
             update_teacher_model(student_model, teacher_model, ema_decay=ema_decay)

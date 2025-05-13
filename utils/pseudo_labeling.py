@@ -42,7 +42,7 @@ class PseudoLabelGenerator:
                 confidence, pseudo_labels = torch.max(probs, dim=1)
 
                 if self.dynamic_threshold and self.class_balanced:
-                    class_thresholds = self.compute_class_thresholds_with_reservation(probs, s=self.s)
+                    class_thresholds = self.compute_class_thresholds_with_reservation(probs=probs, s=self.s)
                     self.class_threshold_ema = self.update_threshold_ema(class_thresholds, self.class_threshold_ema, beta=self.beta)
 
                     for c in range(probs.shape[1]):
@@ -56,16 +56,20 @@ class PseudoLabelGenerator:
             torch.cuda.empty_cache()
         self.teacher_model.train()
 
+    @staticmethod
     def compute_class_thresholds_with_reservation(probs, s=0.8):
         thresholds = []
         for c in range(probs.shape[1]):
             class_conf = probs[:, c, :, :].flatten()
-            sorted_conf = torch.sort(class_conf, descending=True).values
-            idx = max(int(s * sorted_conf.numel()), 1) - 1
-            thresholds.append(sorted_conf[idx].item())
+            if class_conf.numel() == 0:
+                thresholds.append(0.0)
+                continue
+            k = int((1.0 - s) * class_conf.numel())
+            threshold = torch.kthvalue(class_conf, k + 1).values.item() if k > 0 else class_conf.min().item()
+            thresholds.append(threshold)
         return thresholds
 
-    def update_threshold_ema(current_thresholds, ema_thresholds, beta=0.9):
+    def update_threshold_ema(self, current_thresholds, ema_thresholds, beta=0.9):
         if ema_thresholds is None:
             return current_thresholds  # First iteration
         return [
