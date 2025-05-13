@@ -1,12 +1,11 @@
 import argparse
 import torch
-import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from tqdm import tqdm
 from models import deeplabv3plus
 from utils import data_loader
-from utils.pseudo_labeling import generate_pseudo_labels
+from utils import pseudo_labeling
 from utils import losses
 from sklearn.model_selection import KFold
 from sklearn.metrics import jaccard_score
@@ -14,7 +13,6 @@ import csv
 from copy import deepcopy
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.distributed as dist
-from torchvision.transforms import RandomCrop
 import torchvision.transforms as T
 import torchvision.transforms.functional as TF
 # from utils.lr_scheduler import PolyLR
@@ -38,7 +36,8 @@ def train(
         learning_rate=0.001, temperature=0.1, neighborhood_size=5,
         weight_pixel=1.0, weight_local=1.0, weight_directional=1.0,
         supervised_loss='cross_entropy', contrastive_loss='pixel',
-        dynamic_threshold=True, class_balanced=True, ema_decay=0.99
+        dynamic_threshold=True, class_balanced=True,
+        ema_decay=0.99, lambda_contrast=0.1
 ):
     dist.init_process_group(backend="nccl")
     local_rank = dist.get_rank()
@@ -111,6 +110,7 @@ def train(
         # iters_per_epoch = len(train_dataloader) + len(unlabeled_dataloader)
         # scheduler = PolyLR(optimizer, num_epochs=num_epochs, iters_per_epoch=iters_per_epoch)
 
+        class_threshold_ema = None
         for epoch in range(num_epochs):
             train_dataloader.sampler.set_epoch(epoch)
             student_model.train()
@@ -133,10 +133,17 @@ def train(
             pseudo_batches_count = 0
             if epoch >= 0:  # if epoch>10
                 try:
-                    pseudo_batches = generate_pseudo_labels(
-                        teacher_model, unlabeled_dataloader, threshold, device,
-                        dynamic_threshold=dynamic_threshold, class_balanced=class_balanced
+                    pseudo_labeler = pseudo_labeling.PseudoLabelGenerator(
+                        teacher_model=teacher_model,
+                        threshold=threshold,
+                        device=device,
+                        dynamic_threshold=dynamic_threshold,
+                        class_balanced=class_balanced,
+                        s=0.8,
+                        beta=0.9,
+                        class_threshold_ema=class_threshold_ema
                     )
+                    pseudo_batches = pseudo_labeler(unlabeled_dataloader)
 
                     for images, pseudo_labels in tqdm(
                             pseudo_batches,
@@ -169,12 +176,16 @@ def train(
                                     T.RandomGrayscale(p=0.2),
                                     T.GaussianBlur(kernel_size=3, sigma=(0.1, 2.0))
                                 ])
-                                xu1_aug = torch.stack(
-                                    [low_level_augment(TF.to_pil_image(img.cpu())).convert("RGB") for img in xu1.cpu()])
-                                xu2_aug = torch.stack(
-                                    [low_level_augment(TF.to_pil_image(img.cpu())).convert("RGB") for img in xu2.cpu()])
-                                xu1 = xu1_aug.permute(0, 3, 1, 2).to(device) / 255.0
-                                xu2 = xu2_aug.permute(0, 3, 1, 2).to(device) / 255.0
+                                xu1_aug = torch.stack([
+                                    TF.to_tensor(low_level_augment(TF.to_pil_image(img.cpu())))
+                                    for img in xu1
+                                ])
+                                xu2_aug = torch.stack([
+                                    TF.to_tensor(low_level_augment(TF.to_pil_image(img.cpu())))
+                                    for img in xu2
+                                ])
+                                xu1 = xu1_aug.to(device)
+                                xu2 = xu2_aug.to(device)
 
                                 # Pass through model
                                 logits1, feat1 = student_model(xu1, feature_maps=True)
@@ -225,13 +236,9 @@ def train(
 
                         # Compute contrastive loss
                         if contrastive_loss == 'pixel':
-                            try:
-                                unsup_loss = contrastive_loss_fn(
-                                    features=features, labels=pseudo_labels, predict=predicted_labels
-                                )
-                            except Exception as e:
-                                print("Error in pixel contrastive loss calculation:", e)
-                                raise
+                            unsup_loss = contrastive_loss_fn(
+                                features=features, labels=pseudo_labels, predict=predicted_labels
+                            )
                         elif contrastive_loss == 'directional':
                             unsup_loss = contrastive_loss_fn(
                                 output_feat1=output_feat1, output_feat2=output_feat2,
@@ -241,6 +248,11 @@ def train(
                             )
 
                         elif contrastive_loss == "local":
+                            print('dimensions of psuedo_labels just before local contr.', pseudo_labels.dim())
+                            if pseudo_labels.dim() == 2:
+                                B = features.size(0)
+                                H, W = features.size(2), features.size(3)
+                                pseudo_labels = pseudo_labels.view(B, H, W)
                             unsup_loss = contrastive_loss_fn(features=features, labels=pseudo_labels)
                         elif contrastive_loss == "hybrid":
                             unsup_loss = contrastive_loss_fn(
@@ -256,13 +268,15 @@ def train(
                             # Dummy supervised CE loss to keep classifier parameters active
                             dummy_ce = F.cross_entropy(logits, pseudo_labels, ignore_index=255)
                             unsup_loss += 0.0 * dummy_ce
+                            total_loss = lambda_contrast * unsup_loss
 
                             optimizer.zero_grad()
-                            unsup_loss.backward()
+                            total_loss.backward()
                             optimizer.step()
                             # scheduler.step()
                             semi_supervised_loss += unsup_loss.item()
                             pseudo_batches_count += 1
+                            class_threshold_ema = pseudo_labeler.get_ema_thresholds()
                         except Exception as e:
                             print(f"Error during optimization step: {e}")
                             raise
@@ -343,9 +357,10 @@ if __name__ == "__main__":
     parser.add_argument("--weight_directional", type=float, default=1.0)
     parser.add_argument("--supervised_loss", type=str, default="cross_entropy")
     parser.add_argument("--contrastive_loss", type=str, default="pixel")
-    parser.add_argument("--dynamic_threshold", action="store_true", help="Enable dynamic thresholding")
-    parser.add_argument("--class_balanced", action="store_true", help="Enable class-balanced pseudo-labeling")
-    parser.add_argument("--ema_decay", type=float, default=0.99, help="EMA decay rate for teacher model")
+    parser.add_argument("--dynamic_threshold", type=bool, default=True)
+    parser.add_argument("--class_balanced", type=bool, default=True)
+    parser.add_argument("--ema_decay", type=float, default=0.99)
+    parser.add_argument("--lambda_contrast", type=float, default=0.1)
     args = parser.parse_args()
 
     train(
@@ -363,6 +378,7 @@ if __name__ == "__main__":
         contrastive_loss=args.contrastive_loss,
         dynamic_threshold=args.dynamic_threshold,
         class_balanced=args.class_balanced,
-        ema_decay=args.ema_decay
+        ema_decay=args.ema_decay,
+        lambda_contrast=args.lambda_contrast
     )
 
