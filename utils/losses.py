@@ -302,7 +302,8 @@ class HybridContrastiveLoss(nn.Module):
 
     def forward(
             self, output_feat1, output_feat2, pseudo_label1, pseudo_label2,
-            pseudo_logits1, pseudo_logits2, output_ul1, output_ul2, predicted_labels
+            pseudo_logits1, pseudo_logits2, output_ul1, output_ul2,
+            predicted_labels, labels
     ):
         """
         Compute the Hybrid Contrastive Loss.
@@ -312,8 +313,8 @@ class HybridContrastiveLoss(nn.Module):
         Returns:
             torch.Tensor: Combined loss value.
         """
-        loss_pixel = self.pixel_loss(features=output_feat1, labels=pseudo_label1, predict=predicted_labels)
-        loss_local = self.local_loss(features=output_feat1, labels=pseudo_label1)
+        loss_pixel = self.pixel_loss(features=output_ul1, labels=labels, predict=predicted_labels)
+        loss_local = self.local_loss(features=output_ul1, labels=labels)
         loss_directional = self.directional_loss(
             output_feat1=output_feat1, output_feat2=output_feat2,
             pseudo_label1=pseudo_label1, pseudo_label2=pseudo_label2,

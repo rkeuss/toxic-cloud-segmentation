@@ -194,7 +194,7 @@ def train(
                         logits2 = logits2.clone()
 
                         pseudo_label1 = torch.argmax(logits1, dim=1)
-                        predicted_labels = pseudo_label1
+                        predicted_labels1 = pseudo_label1
                         pseudo_label2 = torch.argmax(logits2, dim=1)
 
                         with torch.no_grad():
@@ -284,7 +284,7 @@ def train(
                             pseudo_label1=label1, pseudo_label2=label2,
                             pseudo_logits1=conf1, pseudo_logits2=conf2,
                             output_ul1=feat1, output_ul2=feat2,
-                            predicted_labels=predicted_labels
+                            predicted_labels=predicted_labels1, labels=pseudo_label1
                         )
                     else:
                         raise NotImplementedError(f"Unsupported contrastive_loss: {contrastive_loss}")
