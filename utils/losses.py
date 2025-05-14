@@ -305,30 +305,47 @@ class HybridContrastiveLoss(nn.Module):
             pseudo_logits1, pseudo_logits2, output_ul1, output_ul2,
             predicted_labels, labels
     ):
-        """
-        Compute the Hybrid Contrastive Loss.
-        Args:
-            features: Tensor of shape (N, C, H, W), feature maps.
-            labels: Tensor of shape (N, H, W), ground truth or pseudo-labels.
-        Returns:
-            torch.Tensor: Combined loss value.
-        """
-        loss_pixel = self.pixel_loss(features=output_ul1, labels=labels, predict=predicted_labels)
-        loss_local = self.local_loss(features=output_ul1, labels=labels)
+        features_pixel = output_ul1.detach().clone()
+        labels_pixel = labels.detach().clone()
+        pred_pixel = predicted_labels.detach().clone()
+        loss_pixel = self.pixel_loss(
+            features=features_pixel,
+            labels=labels_pixel,
+            predict=pred_pixel
+        )
+
+        features_local = output_ul1.detach().clone()
+        labels_local = labels.detach().clone()
+        loss_local = self.local_loss(
+            features=features_local,
+            labels=labels_local
+        )
+
+        output_feat1_d = output_feat1.detach().clone()
+        output_feat2_d = output_feat2.detach().clone()
+        pseudo_label1_d = pseudo_label1.detach().clone()
+        pseudo_label2_d = pseudo_label2.detach().clone()
+        pseudo_logits1_d = pseudo_logits1.detach().clone()
+        pseudo_logits2_d = pseudo_logits2.detach().clone()
+        output_ul1_d = output_ul1.detach().clone()
+        output_ul2_d = output_ul2.detach().clone()
         loss_directional = self.directional_loss(
-            output_feat1=output_feat1, output_feat2=output_feat2,
-            pseudo_label1=pseudo_label1, pseudo_label2=pseudo_label2,
-            pseudo_logits1=pseudo_logits1, pseudo_logits2=pseudo_logits2,
-            output_ul1=output_ul1, output_ul2=output_ul2
+            output_feat1=output_feat1_d,
+            output_feat2=output_feat2_d,
+            pseudo_label1=pseudo_label1_d,
+            pseudo_label2=pseudo_label2_d,
+            pseudo_logits1=pseudo_logits1_d,
+            pseudo_logits2=pseudo_logits2_d,
+            output_ul1=output_ul1_d,
+            output_ul2=output_ul2_d
         )
 
         combined_loss = (
-            self.weight_pixel * loss_pixel +
-            self.weight_local * loss_local +
-            self.weight_directional * loss_directional
+                self.weight_pixel * loss_pixel +
+                self.weight_local * loss_local +
+                self.weight_directional * loss_directional
         )
         return combined_loss
-
 
 # Code copied from C3-SemiSeg
 class PixelContrastiveLoss(nn.Module):
