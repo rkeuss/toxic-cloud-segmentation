@@ -85,7 +85,7 @@ def get_ijmond_seg_dataset(image_dir, split):
     return dataset
 
 def get_ijmond_seg_dataloader_train(train_idx, split, batch_size, shuffle=True, rank=0, world_size=1):
-    image_dir = 'data/IJMOND_SEG'
+    image_dir = 'data/IJMOND_SEG/cropped'
     coco_annotations = f"{image_dir}/splits/{split}.json"
     coco = COCO(coco_annotations)
     imgIds = coco.getImgIds()
@@ -107,7 +107,7 @@ def get_ijmond_seg_dataloader_train(train_idx, split, batch_size, shuffle=True, 
     return dataloader
 
 def get_ijmond_seg_dataloader_validation(val_idx, split, batch_size, shuffle=True, rank=0, world_size=1):
-    image_dir = 'data/IJMOND_SEG'
+    image_dir = 'data/IJMOND_SEG/cropped'
     coco_annotations = f"{image_dir}/splits/{split}.json"
     coco = COCO(coco_annotations)
     imgIds = coco.getImgIds()

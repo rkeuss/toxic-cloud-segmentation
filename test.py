@@ -83,7 +83,8 @@ def test(supervised_loss, contrastive_loss):
         model.load_state_dict(
             torch.load(f'models/best_model_{supervised_loss}_{contrastive_loss}.pth', map_location=device))
     except FileNotFoundError:
-        print("Error: Best model file not found. Please ensure 'models/best_model.pth' exists.")
+        print(f"Error: Best model file not found. "
+              f"Please ensure 'models/best_model_{supervised_loss}_{contrastive_loss}.pth' exists.")
         exit(1)
 
     model = model.to(device)

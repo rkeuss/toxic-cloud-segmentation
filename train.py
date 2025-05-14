@@ -31,6 +31,11 @@ def get_random_crop_coords(img_h, img_w, crop_h, crop_w):
     left = torch.randint(0, img_w - crop_w + 1, (1,)).item()
     return top, left
 
+def safe_skip_batch(device, optimizer):
+    dummy_loss = torch.tensor(0.0, device=device, requires_grad=True)
+    dummy_loss.backward()
+    optimizer.step()
+
 def train(
         num_folds=6, num_epochs=40, batch_size=8, threshold=0.5,
         learning_rate=0.001, temperature=0.1, neighborhood_size=5,
@@ -164,6 +169,7 @@ def train(
                         overlap_right = min(left1 + crop_w, left2 + crop_w)
 
                         if overlap_bottom - overlap_top <= 0 or overlap_right - overlap_left <= 0:
+                            safe_skip_batch(device, optimizer)
                             continue  # No valid overlap
 
                         xu1 = images[:, :, top1:top1 + crop_h, left1:left1 + crop_w]
@@ -218,6 +224,7 @@ def train(
                         # Check if overlap is still valid after scaling
                         if (o_bottom - o_top <= 0) or (o_right - o_left <= 0):
                             print("batch skipped as overlap is too small after scaling")
+                            safe_skip_batch(device, optimizer)
                             continue
 
                         # Extract overlapping feature regions
@@ -227,6 +234,7 @@ def train(
                         if output_feat1.shape != output_feat2.shape:
                             print(
                                 f"Shape mismatch in overlapping feature regions: {output_feat1.shape} vs {output_feat2.shape}")
+                            safe_skip_batch(device, optimizer)
                             continue
 
                         b, c, h, w = output_feat1.shape
@@ -255,7 +263,9 @@ def train(
 
                         if output_feat1.numel() == 0 or output_feat2.numel() == 0:
                             print("Skipping directional contrastive loss due to empty overlapping region")
+                            safe_skip_batch(device, optimizer)
                             continue
+
                     else:
                         logits, features = student_model(images, feature_maps=True)
                         logits = logits.clone()
