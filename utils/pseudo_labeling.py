@@ -37,7 +37,8 @@ class PseudoLabelGenerator:
                 continue
             images = images.to(self.device)
             with torch.no_grad():
-                logits = self.teacher_model(images)
+                with torch.amp.autocast('cuda'):
+                    logits = self.teacher_model(images)
                 probs = torch.softmax(logits, dim=1)
                 confidence, pseudo_labels = torch.max(probs, dim=1)
 

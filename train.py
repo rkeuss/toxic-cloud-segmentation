@@ -365,7 +365,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_folds", type=int, default=6)
     parser.add_argument("--num_epochs", type=int, default=40)
-    parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--threshold", type=float, default=0.5)
     parser.add_argument("--learning_rate", type=float, default=0.00012)
     parser.add_argument("--temperature", type=float, default=0.15)
