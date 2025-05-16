@@ -35,6 +35,33 @@ def safe_skip_batch(device, optimizer):
     dummy_loss = torch.tensor(0.0, device=device, requires_grad=True)
     dummy_loss.backward()
     optimizer.step()
+    optimizer.zero_grad()
+
+def synchronized_pseudo_batches(pseudo_labeler, dataloader, device, batch_size):
+    local_iter = iter(pseudo_labeler(dataloader))
+    finished = False
+
+    while True:
+        try:
+            images, pseudo_labels = next(local_iter)
+            finished = False
+        except StopIteration:
+            finished = True
+            # Send dummy data so ranks remain in sync
+            images = torch.zeros((batch_size, 3, 640, 640), dtype=torch.float32)
+            pseudo_labels = torch.full((batch_size, 640, 640), 255, dtype=torch.long)
+
+        # Share skip status
+        done_tensor = torch.tensor(int(finished), device=device)
+        done_tensors = [torch.zeros_like(done_tensor) for _ in range(dist.get_world_size())]
+        dist.all_gather(done_tensors, done_tensor)
+
+        # If all ranks are done, break
+        if all(t.item() == 1 for t in done_tensors):
+            break
+
+        yield images, pseudo_labels
+
 
 def train(
         num_folds=6, num_epochs=40, batch_size=8, threshold=0.5,
@@ -147,11 +174,8 @@ def train(
                     beta=0.9,
                     class_threshold_ema=class_threshold_ema
                 )
-                pseudo_batches = pseudo_labeler(unlabeled_dataloader)
-
-                for images, pseudo_labels in tqdm(
-                        pseudo_batches,
-                        desc=f"Epoch {epoch + 1}/{num_epochs} - Semi-supervised"
+                for images, pseudo_labels in synchronized_pseudo_batches(
+                        pseudo_labeler, unlabeled_dataloader, device, batch_size
                 ):
                     images, pseudo_labels = images.to(device), pseudo_labels.to(device)
                     student_model.train()
@@ -168,9 +192,16 @@ def train(
                         overlap_bottom = min(top1 + crop_h, top2 + crop_h)
                         overlap_right = min(left1 + crop_w, left2 + crop_w)
 
-                        if overlap_bottom - overlap_top <= 0 or overlap_right - overlap_left <= 0:
+                        # === ✅ SKIP CONDITION 1: Invalid raw overlap ===
+                        skip_flag = torch.tensor(
+                            int(overlap_bottom - overlap_top <= 0 or overlap_right - overlap_left <= 0),
+                            device=device
+                        )
+                        gathered = [torch.zeros_like(skip_flag) for _ in range(dist.get_world_size())]
+                        dist.all_gather(gathered, skip_flag)
+                        if any(f.item() == 1 for f in gathered):
                             safe_skip_batch(device, optimizer)
-                            continue  # No valid overlap
+                            continue
 
                         xu1 = images[:, :, top1:top1 + crop_h, left1:left1 + crop_w]
                         xu2 = images[:, :, top2:top2 + crop_h, left2:left2 + crop_w]
@@ -221,8 +252,13 @@ def train(
                         o2_bottom = o2_top + (overlap_bottom - overlap_top) // stride
                         o2_right = o2_left + (overlap_right - overlap_left) // stride
 
-                        # Check if overlap is still valid after scaling
-                        if (o_bottom - o_top <= 0) or (o_right - o_left <= 0):
+                        # === ✅ SKIP CONDITION 2: Invalid overlap after scaling ===
+                        skip_flag = torch.tensor(
+                            int((o_bottom - o_top <= 0) or (o_right - o_left <= 0)),
+                            device=device
+                        )
+                        dist.all_gather(gathered, skip_flag)
+                        if any(f.item() == 1 for f in gathered):
                             print("batch skipped as overlap is too small after scaling")
                             safe_skip_batch(device, optimizer)
                             continue
@@ -231,9 +267,16 @@ def train(
                         output_feat1 = feat1[:, :, o_top:o_bottom, o_left:o_right].clone()
                         output_feat2 = feat2[:, :, o2_top:o2_bottom, o2_left:o2_right].clone()
 
-                        if output_feat1.shape != output_feat2.shape:
+                        # === ✅ SKIP CONDITION 3: Shape mismatch ===
+                        skip_flag = torch.tensor(
+                            int(output_feat1.shape != output_feat2.shape),
+                            device=device
+                        )
+                        dist.all_gather(gathered, skip_flag)
+                        if any(f.item() == 1 for f in gathered):
                             print(
-                                f"Shape mismatch in overlapping feature regions: {output_feat1.shape} vs {output_feat2.shape}")
+                                f"Shape mismatch in overlapping feature regions: {output_feat1.shape} vs {output_feat2.shape}"
+                            )
                             safe_skip_batch(device, optimizer)
                             continue
 
@@ -261,7 +304,13 @@ def train(
                         conf1 = pseudo_logits1[:, o_top:o_bottom, o_left:o_right].reshape(-1)
                         conf2 = pseudo_logits2[:, o2_top:o2_bottom, o2_left:o2_right].reshape(-1)
 
-                        if output_feat1.numel() == 0 or output_feat2.numel() == 0:
+                        # === ✅ SKIP CONDITION 4: Empty features ===
+                        skip_flag = torch.tensor(
+                            int(output_feat1.numel() == 0 or output_feat2.numel() == 0),
+                            device=device
+                        )
+                        dist.all_gather(gathered, skip_flag)
+                        if any(f.item() == 1 for f in gathered):
                             print("Skipping directional contrastive loss due to empty overlapping region")
                             safe_skip_batch(device, optimizer)
                             continue
