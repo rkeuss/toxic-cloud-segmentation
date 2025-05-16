@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from PIL import Image
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
+from torch.utils.data.distributed import DistributedSampler
 
 
 class IJmondSegDataset(Dataset):
@@ -83,8 +84,8 @@ def get_ijmond_seg_dataset(image_dir, split):
     dataset = IJmondSegDataset(coco, imgIds, image_dir, transform=None)
     return dataset
 
-def get_ijmond_seg_dataloader_train(train_idx, split, batch_size, shuffle=True):
-    image_dir = 'data/IJMOND_SEG'
+def get_ijmond_seg_dataloader_train(train_idx, split, batch_size, shuffle=True, rank=0, world_size=1):
+    image_dir = 'data/IJMOND_SEG/cropped'
     coco_annotations = f"{image_dir}/splits/{split}.json"
     coco = COCO(coco_annotations)
     imgIds = coco.getImgIds()
@@ -92,20 +93,21 @@ def get_ijmond_seg_dataloader_train(train_idx, split, batch_size, shuffle=True):
     # Filter imgIds to only include those in train_idx
     train_imgIds = [imgIds[i] for i in train_idx]
 
+    # Weak data augmentation for training
     train_transform = A.Compose([
-        A.Resize(640, 640),
+        A.Resize(640, 640, interpolation=cv2.INTER_LINEAR),  # for images
         A.HorizontalFlip(p=0.5),
-        A.Rotate(limit=10, p=0.5),
-        A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1, p=0.5),
-        ToTensorV2(),
-    ])
+        A.Rotate(limit=10, p=0.5),  # Random rotation within 10°
+        ToTensorV2(transpose_mask=True),  # ensures mask is treated correctly
+    ], additional_targets={'mask': 'mask'})
 
     dataset = IJmondSegDataset(coco, train_imgIds, image_dir, transform=train_transform)
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
+    sampler = DistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle=shuffle)
+    dataloader = DataLoader(dataset, batch_size=batch_size, sampler=sampler)
     return dataloader
 
-def get_ijmond_seg_dataloader_validation(val_idx, split, batch_size, shuffle=True):
-    image_dir = 'data/IJMOND_SEG'
+def get_ijmond_seg_dataloader_validation(val_idx, split, batch_size, shuffle=True, rank=0, world_size=1):
+    image_dir = 'data/IJMOND_SEG/cropped'
     coco_annotations = f"{image_dir}/splits/{split}.json"
     coco = COCO(coco_annotations)
     imgIds = coco.getImgIds()
@@ -120,7 +122,8 @@ def get_ijmond_seg_dataloader_validation(val_idx, split, batch_size, shuffle=Tru
     ])
 
     dataset = IJmondSegDataset(coco, val_imgIds, image_dir, transform=val_transform)
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
+    sampler = DistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle=shuffle)
+    dataloader = DataLoader(dataset, batch_size=batch_size, sampler=sampler)
     return dataloader
 
 
@@ -136,8 +139,6 @@ class UnlabelledDataset(Dataset):
                     continue  # Skip hidden/macOS metadata files
                 self.image_list.append(os.path.join(image_dir, img_name))
 
-        self.pseudo_labels = [None] * len(self.image_list)  # Placeholder for pseudo-labels
-
     def __len__(self):
         return len(self.image_list)
 
@@ -149,24 +150,29 @@ class UnlabelledDataset(Dataset):
             raise RuntimeError(f"Failed to load image {img_path}: {e}")
 
         image = self.transform(image=image)["image"] if self.transform else ToTensorV2()(image=image)["image"]
-        pseudo_label = self.pseudo_labels[idx]  # Retrieve pseudo-label if available
-
-        return image, pseudo_label
-
-    def update_pseudo_labels(self, new_pseudo_labels):
-        """Update pseudo-labels dynamically."""
-        self.pseudo_labels = new_pseudo_labels
+        return image.float(), 0
 
 
-def get_unlabelled_dataloader(image_dirs, batch_size, shuffle=True):
+def get_unlabelled_dataloader(image_dirs, batch_size, shuffle=True, rank=0, world_size=1):
+    # Strong data augmentation for unlabeled data
     strong_transform = A.Compose([
         A.Resize(640, 640),
         A.HorizontalFlip(p=0.5),
-        A.Rotate(limit=15, p=0.5),
-        A.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.2, p=0.5),
+        A.Rotate(limit=10, p=0.5),  # Random rotation within 10°
+        A.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4, hue=0.2, p=0.7),
+        A.RandomResizedCrop(size=(640, 640), scale=(0.08, 1.0), ratio=(1.0, 1.0), interpolation=cv2.INTER_LINEAR),
+
+        # RandAugment-style color transforms
+        A.Solarize(threshold_range=(0, 0.8), p=0.3),
+        A.Equalize(mode='cv', p=0.3),
+        A.RandomBrightnessContrast(p=0.3),
+        A.RandomGamma(p=0.3),
+        A.Posterize(num_bits=4, p=0.3),
+
         ToTensorV2(),
     ])
 
     dataset = UnlabelledDataset(image_dirs, transform=strong_transform)
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
+    sampler = DistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle=shuffle)
+    dataloader = DataLoader(dataset, batch_size=batch_size, sampler=sampler)
     return dataloader

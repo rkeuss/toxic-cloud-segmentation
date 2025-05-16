@@ -3,7 +3,7 @@
 #SBATCH --output=logs/output_%j.log
 #SBATCH --error=logs/error_%j.err
 #SBATCH --partition=gpu
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:4
 #SBATCH --time=04:00:00
 #SBATCH --mem=64G
 #SBATCH --mail-type=END,FAIL
@@ -17,12 +17,14 @@ pip install -r requirements
 cd /projects/prjs1392/toxic-cloud-segmentation
 mkdir -p logs
 
+NUM_NODES=1
+NUM_GPUS=4
 NUM_FOLDS=6 # same default value as C3-semiseg
 NUM_EPOCHS=40 # same default value as C3-semiseg
-BATCH_SIZE=14 # same default value as C3-semiseg, or 8 (default of local paper)
+BATCH_SIZE=32 # same default value as C3-semiseg, or 8 (default of local paper)
 THRESHOLD=0.5 # standard decision threshold for binary classification with sigmoid outputs. It assumes balanced class presence, which is often a simplification but works as a baseline.
-LEARNING_RATE=0.001 # same default value as C3-semiseg
-TEMPERATURE=0.7 # for contrastive loss, 0.7 is used default value as C3-semiseg, 0.1 is used default value as local paper
+LEARNING_RATE=0.00012 # same default value as C3-semiseg
+TEMPERATURE=0.15 # for contrastive loss, 0.7 is used default value as C3-semiseg, 0.15 is used default value as local paper
 NEIGHBORHOOD_SIZE=3 # same default value as local paper
 WEIGHT_PIXEL=1.0
 WEIGHT_LOCAL=1.0
@@ -56,7 +58,7 @@ echo "Learning rate: $LEARNING_RATE, Temp: $TEMPERATURE"
 echo "Losses: $SUPERVISED_LOSS + $CONTRASTIVE_LOSS"
 
 # Run training script
-python train.py \
+torchrun --nproc_per_node=$NUM_GPUS --nnodes=$NUM_NODES train.py \
     --num_folds "$NUM_FOLDS" \
     --num_epochs "$NUM_EPOCHS" \
     --batch_size "$BATCH_SIZE" \

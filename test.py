@@ -7,7 +7,7 @@ from sklearn.metrics import jaccard_score
 import numpy as np
 import csv
 import os
-
+import torch.distributed as dist
 
 def dice_coefficient(pred, target, epsilon=1e-6):
     """
@@ -66,22 +66,25 @@ def evaluate_model(model, dataloader, device):
 
 
 def test(supervised_loss, contrastive_loss):
-    num_classes = 2
+    dist.init_process_group(backend="nccl")
+    torch.cuda.set_device(dist.get_rank() % torch.cuda.device_count())
+    rank = dist.get_rank()
+    world_size = dist.get_world_size()
+    device = torch.device(f"cuda:{rank % torch.cuda.device_count()}" if torch.cuda.is_available() else "cpu")
 
     test_dataset = get_ijmond_seg_dataset('data/IJMOND_SEG', split='test')
     test_idx = list(range(len(test_dataset)))
     test_dataloader = get_ijmond_seg_dataloader_validation(
-        test_idx, split='test', batch_size=8, shuffle=False
+        test_idx, split='test', batch_size=8, shuffle=False, rank=rank, world_size=world_size
     )
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    model = resnet101_deeplabv3plus_imagenet(num_classes=num_classes, pretrained=False)
+    model = resnet101_deeplabv3plus_imagenet(num_classes=2, pretrained=False)
     try:
         model.load_state_dict(
             torch.load(f'models/best_model_{supervised_loss}_{contrastive_loss}.pth', map_location=device))
     except FileNotFoundError:
-        print("Error: Best model file not found. Please ensure 'models/best_model.pth' exists.")
+        print(f"Error: Best model file not found. "
+              f"Please ensure 'models/best_model_{supervised_loss}_{contrastive_loss}.pth' exists.")
         exit(1)
 
     model = model.to(device)

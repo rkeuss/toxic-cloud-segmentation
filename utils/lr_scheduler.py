@@ -1,15 +1,18 @@
+# Code copied from C3-SemiSeg
+
 import math
 from torch.optim.lr_scheduler import _LRScheduler
 import numpy as np
 
 
-class Poly(_LRScheduler):
+class PolyLR(_LRScheduler):
     def __init__(self, optimizer, num_epochs, iters_per_epoch=0, warmup_epochs=0, last_epoch=-1):
         self.iters_per_epoch = iters_per_epoch
         self.cur_iter = 0
         self.N = num_epochs * iters_per_epoch
         self.warmup_iters = warmup_epochs * iters_per_epoch
-        super(Poly, self).__init__(optimizer, last_epoch)
+        self.current_step = 0
+        super(PolyLR, self).__init__(optimizer, last_epoch)
 
     def get_lr(self):
         T = self.last_epoch * self.iters_per_epoch + self.cur_iter
@@ -20,6 +23,10 @@ class Poly(_LRScheduler):
         self.cur_iter %= self.iters_per_epoch
         self.cur_iter += 1
         return [base_lr * factor for base_lr in self.base_lrs]
+
+    def step(self, epoch=None):
+        self.current_step += 1
+        super().step(epoch)
 
 
 class OneCycle(_LRScheduler):

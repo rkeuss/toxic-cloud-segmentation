@@ -1,7 +1,9 @@
 # toxic-cloud-segmentation
 
 Prepare the data
-1. IJmond_SEG: downloaded from roboflow in COCO format
+1. IJmond_SEG: downloaded from roboflow in COCO format. The images were then cropped using script crop_images.py. The 
+   cropped images are saved in the data folder. The annotations file is saved in the data folder as well. This file
+   contains the paths to the images and the corresponding masks. 
 2. To get the unlabelled data, run the script load_unlabelled_data.py. This will download the videos and save the 
 frames in the data folder. To get IJmond_VID the file metadata_ijmond_jan_22_2024.json is used and all frames are saved. 
 To get RISE the file metadata.json is used and only the first frame of each video is saved.
@@ -9,7 +11,7 @@ To get RISE the file metadata.json is used and only the first frame of each vide
 Split the IJmond_SEG dataset into train and test sets by running the make_splits.py script.
 
 Train the baseline model by running the shell script train_ssl.sh. If you want to change the hyperparameters for 
-training, go to the train.py file directly. Test the model by running the shell script test_ssl.sh.
+training, this can be done in train_ssl.sh or in train.py. Test the model by running the shell script test_ssl.sh.
 
 To run the experiments, change the hyperparameters in the shell scripts and run them. 
 
