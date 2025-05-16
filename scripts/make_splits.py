@@ -31,6 +31,6 @@ def split_coco_annotations(coco_json_path, output_dir, train_size=0.8, random_st
 
     print(f"Train and test splits saved to {output_dir}")
 
-coco_json_path = os.path.abspath('../data/IJMOND_SEG/_annotations.coco.json')
-output_dir = '../data/IJMOND_SEG/splits'
+coco_json_path = os.path.abspath('../data/IJMOND_SEG/cropped/cropped_annotations.json')
+output_dir = '../data/IJMOND_SEG/cropped/splits'
 split_coco_annotations(coco_json_path, output_dir)

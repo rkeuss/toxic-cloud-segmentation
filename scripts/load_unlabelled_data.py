@@ -95,6 +95,7 @@ def load_rise():
         if not os.path.exists(video_file_path):
             download_video(url_root, url_part, video_file_path)
 
+        # if you want to extract all frames, create a for loop here looping over all 36 frames
         frame = extract_frame(video_file_path, frame_number=0)
         if frame is not None:
             frame_file_path = os.path.join(output_dir, f"{file_name}_frame.png")
