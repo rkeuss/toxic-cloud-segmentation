@@ -7,7 +7,9 @@ from sklearn.metrics import jaccard_score
 import numpy as np
 import csv
 import os
+import time
 import torch.distributed as dist
+import torchvision.transforms as T
 
 def dice_coefficient(pred, target, epsilon=1e-6):
     """
@@ -26,19 +28,40 @@ def dice_coefficient(pred, target, epsilon=1e-6):
     dice = (2.0 * intersection + epsilon) / (pred.sum() + target.sum() + epsilon)
     return dice.item()
 
+def apply_perturbations(images):
+    """
+    Apply perturbations to the input images for mIoU-P computation.
+    """
+    perturbations = [
+        T.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+        T.RandomHorizontalFlip(p=1.0),
+        T.RandomRotation(degrees=15),
+        T.GaussianBlur(kernel_size=3, sigma=(0.1, 2.0))
+    ]
+    perturbed_images = []
+    for transform in perturbations:
+        perturbed_images.append(torch.stack([transform(img) for img in images]))
+    return perturbed_images
+
 
 def evaluate_model(model, dataloader, device):
     """Evaluate the model on the test set."""
     model.eval()
     dice_scores = []
     iou_scores = []
+    miou_p_scores = []
+    inference_times = []
 
     with torch.no_grad():
         for images, masks in dataloader:
             images = images.to(device)
             masks = masks.to(device)
 
+            # get inference time
+            start_time = time.time()
             outputs = model(images)
+            inference_times.append((time.time() - start_time) / len(images))
+
             preds = torch.argmax(outputs, dim=1)
 
             for pred, mask in zip(preds, masks):
@@ -56,13 +79,38 @@ def evaluate_model(model, dataloader, device):
                 dice_scores.append(dice_coefficient(pred_np, mask_np))
                 iou_scores.append(jaccard_score(mask_np, pred_np, average='binary'))
 
+            # Compute mIoU-P
+            perturbed_images = apply_perturbations(images)
+            for perturbed in perturbed_images:
+                perturbed = perturbed.to(device)
+                perturbed_outputs = model(perturbed)
+                perturbed_preds = torch.argmax(perturbed_outputs, dim=1)
+
+                for perturbed_pred, mask in zip(perturbed_preds, masks):
+                    if perturbed_pred.shape[-2:] != mask.shape[-2:]:
+                        perturbed_pred = F.interpolate(
+                            perturbed_pred.unsqueeze(0), size=mask.shape[-2:], mode='bilinear', align_corners=False
+                        ).squeeze(0)
+
+                    perturbed_pred_bin = (perturbed_pred > 0.5).float()
+                    mask = mask.float()
+
+                    perturbed_pred_np = perturbed_pred_bin.cpu().numpy().astype(np.uint8).flatten()
+                    mask_np = mask.cpu().numpy().astype(np.uint8).flatten()
+
+                    miou_p_scores.append(jaccard_score(mask_np, perturbed_pred_np, average='binary'))
+
     avg_dice = np.mean(dice_scores)
     avg_iou = np.mean(iou_scores)
+    avg_miou_p = np.mean(miou_p_scores)
+    avg_inference_time = np.mean(inference_times)
 
     print(f"Average Dice Coefficient (DSC): {avg_dice:.4f}")
     print(f"Average IoU (mIoU): {avg_iou:.4f}")
+    print(f"Average mIoU-P: {avg_miou_p:.4f}")
+    print(f"Average Inference Time per Frame: {avg_inference_time:.4f} seconds")
 
-    return avg_dice, avg_iou
+    return avg_dice, avg_iou, avg_miou_p, avg_inference_time
 
 
 def test(supervised_loss, contrastive_loss):
@@ -88,7 +136,7 @@ def test(supervised_loss, contrastive_loss):
         exit(1)
 
     model = model.to(device)
-    avg_dice, avg_iou = evaluate_model(model, test_dataloader, device)
+    avg_dice, avg_iou, avg_miou_p, avg_inference_time = evaluate_model(model, test_dataloader, device)
 
     # Save to CSV
     csv_file = "evaluation_results.csv"
@@ -97,8 +145,8 @@ def test(supervised_loss, contrastive_loss):
     with open(csv_file, mode='a', newline='') as f:
         writer = csv.writer(f)
         if not file_exists:
-            writer.writerow(["supervised_loss", "contrastive_loss", "dice", "iou"])
-        writer.writerow([supervised_loss, contrastive_loss, avg_dice, avg_iou])
+            writer.writerow(["supervised_loss", "contrastive_loss", "dice", "iou", "miou_p", "inference_time"])
+        writer.writerow([supervised_loss, contrastive_loss, avg_dice, avg_iou, avg_miou_p, avg_inference_time])
 
 
 if __name__ == "__main__":
