@@ -80,7 +80,7 @@ def train(
     student_model = deeplabv3plus.resnet101_deeplabv3plus_imagenet(num_classes=2, pretrained=True).to(device)
     teacher_model = deepcopy(student_model).to(device)
     teacher_model.eval()
-    student_model = DDP(student_model, device_ids=[local_rank])
+    student_model = DDP(student_model, device_ids=[local_rank], find_unused_parameters=True)
     optimizer = optim.Adam(student_model.parameters(), lr=learning_rate, weight_decay=5e-4)
 
     if supervised_loss == 'cross_entropy':
@@ -163,7 +163,7 @@ def train(
 
             semi_supervised_loss = 0
             pseudo_batches_count = 0
-            if epoch >= 10:
+            if epoch > 10 and epoch % 2 == 0:
                 pseudo_labeler = pseudo_labeling.PseudoLabelGenerator(
                     teacher_model=teacher_model,
                     threshold=threshold,
@@ -174,15 +174,17 @@ def train(
                     beta=0.9,
                     class_threshold_ema=class_threshold_ema
                 )
-                for images, pseudo_labels in synchronized_pseudo_batches(
+                for i, (images, pseudo_labels) in enumerate(synchronized_pseudo_batches(
                         pseudo_labeler, unlabeled_dataloader, device, batch_size
-                ):
+                )):
+                    if i >= 650:  # Limit to 650 batches for unlabeled data as this is around 50% of the total(=1364)
+                        break
                     images, pseudo_labels = images.to(device), pseudo_labels.to(device)
                     student_model.train()
                     if contrastive_loss in ['directional', 'hybrid']:
                         # Generate two crops with overlap
                         b, c, H, W = images.shape
-                        crop_h, crop_w = 320, 320
+                        crop_h, crop_w = 256, 256
 
                         top1, left1 = get_random_crop_coords(H, W, crop_h, crop_w)
                         top2, left2 = get_random_crop_coords(H, W, crop_h, crop_w)
@@ -225,20 +227,10 @@ def train(
                         # Pass through model
                         logits1, feat1 = student_model(xu1, feature_maps=True)
                         logits2, feat2 = student_model(xu2, feature_maps=True)
-                        feat1 = feat1.clone()
-                        feat2 = feat2.clone()
-                        logits1 = logits1.clone()
-                        logits2 = logits2.clone()
-
-                        pseudo_label1 = torch.argmax(logits1, dim=1)
-                        predicted_labels1 = pseudo_label1
-                        pseudo_label2 = torch.argmax(logits2, dim=1)
-
-                        with torch.no_grad():
-                            dummy_ce = F.cross_entropy(logits1.detach(), pseudo_label1.detach(), ignore_index=255)
-
-                        pseudo_logits1 = F.softmax(logits1, dim=1).max(1)[0].clone()
-                        pseudo_logits2 = F.softmax(logits2, dim=1).max(1)[0].clone()
+                        feat1 = feat1.detach().clone()
+                        feat2 = feat2.detach().clone()
+                        logits1 = logits1.detach().clone()
+                        logits2 = logits2.detach().clone()
 
                         # Extract overlapping regions in features and scale them to match feature map resolution
                         stride = 8
@@ -251,6 +243,34 @@ def train(
                         o2_left = (overlap_left - left2) // stride
                         o2_bottom = o2_top + (overlap_bottom - overlap_top) // stride
                         o2_right = o2_left + (overlap_right - overlap_left) // stride
+
+                        with torch.no_grad():
+                            pseudo_label1 = torch.argmax(logits1, dim=1)
+                            predicted_labels1 = pseudo_label1
+                            pseudo_label2 = torch.argmax(logits2, dim=1)
+
+                            pseudo_logits1 = F.softmax(logits1, dim=1).max(1)[0].clone()
+                            pseudo_logits2 = F.softmax(logits2, dim=1).max(1)[0].clone()
+
+                            # Resize pseudo labels and logits to match feature map size
+                            pseudo_label1 = F.interpolate(
+                                pseudo_label1.unsqueeze(1).float(), size=feat1.shape[2:], mode='nearest'
+                            ).squeeze(1).long()
+                            pseudo_label2 = F.interpolate(
+                                pseudo_label2.unsqueeze(1).float(), size=feat2.shape[2:], mode='nearest'
+                            ).squeeze(1).long()
+
+                            pseudo_logits1 = F.interpolate(
+                                pseudo_logits1.unsqueeze(1), size=feat1.shape[2:], mode='bilinear', align_corners=False
+                            ).squeeze(1)
+                            pseudo_logits2 = F.interpolate(
+                                pseudo_logits2.unsqueeze(1), size=feat2.shape[2:], mode='bilinear', align_corners=False
+                            ).squeeze(1)
+
+                            label1 = pseudo_label1[:, o_top:o_bottom, o_left:o_right].reshape(-1)
+                            label2 = pseudo_label2[:, o2_top:o2_bottom, o2_left:o2_right].reshape(-1)
+                            conf1 = pseudo_logits1[:, o_top:o_bottom, o_left:o_right].reshape(-1)
+                            conf2 = pseudo_logits2[:, o2_top:o2_bottom, o2_left:o2_right].reshape(-1)
 
                         # === ✅ SKIP CONDITION 2: Invalid overlap after scaling ===
                         skip_flag = torch.tensor(
@@ -284,25 +304,7 @@ def train(
                         output_feat1 = output_feat1.permute(0, 2, 3, 1).reshape(b * h * w, c)
                         output_feat2 = output_feat2.permute(0, 2, 3, 1).reshape(b * h * w, c)
 
-                        # Resize pseudo labels and logits to match feature map size
-                        pseudo_label1 = F.interpolate(
-                            pseudo_label1.unsqueeze(1).float(), size=feat1.shape[2:], mode='nearest'
-                        ).squeeze(1).long()
-                        pseudo_label2 = F.interpolate(
-                            pseudo_label2.unsqueeze(1).float(), size=feat2.shape[2:], mode='nearest'
-                        ).squeeze(1).long()
-
-                        pseudo_logits1 = F.interpolate(
-                            pseudo_logits1.unsqueeze(1), size=feat1.shape[2:], mode='bilinear', align_corners=False
-                        ).squeeze(1)
-                        pseudo_logits2 = F.interpolate(
-                            pseudo_logits2.unsqueeze(1), size=feat2.shape[2:], mode='bilinear', align_corners=False
-                        ).squeeze(1)
-
-                        label1 = pseudo_label1[:, o_top:o_bottom, o_left:o_right].reshape(-1)
-                        label2 = pseudo_label2[:, o2_top:o2_bottom, o2_left:o2_right].reshape(-1)
-                        conf1 = pseudo_logits1[:, o_top:o_bottom, o_left:o_right].reshape(-1)
-                        conf2 = pseudo_logits2[:, o2_top:o2_bottom, o2_left:o2_right].reshape(-1)
+                        dummy_ce = F.cross_entropy(logits1.detach(), pseudo_label1.detach(), ignore_index=255)
 
                         # === ✅ SKIP CONDITION 4: Empty features ===
                         skip_flag = torch.tensor(
@@ -317,11 +319,10 @@ def train(
 
                     else:
                         logits, features = student_model(images, feature_maps=True)
-                        logits = logits.clone()
-                        features = features.clone()
+                        # logits = logits.clone()
+                        # features = features.clone()
                         predicted_labels = torch.argmax(logits, dim=1)
-                        with torch.no_grad():
-                            dummy_ce = F.cross_entropy(logits, pseudo_labels, ignore_index=255)
+                        dummy_ce = F.cross_entropy(logits, pseudo_labels, ignore_index=255)
 
                     # Compute contrastive loss
                     if contrastive_loss == 'pixel':
@@ -422,8 +423,8 @@ def train(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--num_folds", type=int, default=6)
-    parser.add_argument("--num_epochs", type=int, default=40)
+    parser.add_argument("--num_folds", type=int, default=3)
+    parser.add_argument("--num_epochs", type=int, default=30)
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--threshold", type=float, default=0.5)
     parser.add_argument("--learning_rate", type=float, default=0.00012)

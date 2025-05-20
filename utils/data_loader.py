@@ -98,6 +98,7 @@ def get_ijmond_seg_dataloader_train(train_idx, split, batch_size, shuffle=True, 
         A.Resize(640, 640, interpolation=cv2.INTER_LINEAR),  # for images
         A.HorizontalFlip(p=0.5),
         A.Rotate(limit=10, p=0.5),  # Random rotation within 10°
+        A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
         ToTensorV2(transpose_mask=True),  # ensures mask is treated correctly
     ], additional_targets={'mask': 'mask'})
 
@@ -118,6 +119,7 @@ def get_ijmond_seg_dataloader_validation(val_idx, split, batch_size, shuffle=Tru
     # For test/validation, no augmentation
     val_transform = A.Compose([
         A.Resize(640, 640),
+        A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
         ToTensorV2(),
     ])
 
@@ -169,6 +171,7 @@ def get_unlabelled_dataloader(image_dirs, batch_size, shuffle=True, rank=0, worl
         A.RandomGamma(p=0.3),
         A.Posterize(num_bits=4, p=0.3),
 
+        A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
         ToTensorV2(),
     ])
 
