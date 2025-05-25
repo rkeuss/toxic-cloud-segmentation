@@ -127,12 +127,24 @@ def test(supervised_loss, contrastive_loss):
     )
 
     model = resnet101_deeplabv3plus_imagenet(num_classes=2, pretrained=False)
+    checkpoint_path = f'models/best_model_{supervised_loss}_{contrastive_loss}.pth'
     try:
-        model.load_state_dict(
-            torch.load(f'models/best_model_{supervised_loss}_{contrastive_loss}.pth', map_location=device))
+        state_dict = torch.load(checkpoint_path, map_location=device)
+
+        # Handle DataParallel or DDP "module." prefix
+        if any(k.startswith('module.') for k in state_dict.keys()):
+            from collections import OrderedDict
+            new_state_dict = OrderedDict()
+            for k, v in state_dict.items():
+                new_state_dict[k.replace('module.', '')] = v
+            state_dict = new_state_dict
+
+        model.load_state_dict(state_dict)
     except FileNotFoundError:
-        print(f"Error: Best model file not found. "
-              f"Please ensure 'models/best_model_{supervised_loss}_{contrastive_loss}.pth' exists.")
+        print(f"Error: Best model file not found: {checkpoint_path}")
+        exit(1)
+    except RuntimeError as e:
+        print(f"RuntimeError when loading state dict: {e}")
         exit(1)
 
     model = model.to(device)

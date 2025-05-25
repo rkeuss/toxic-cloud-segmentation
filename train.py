@@ -15,6 +15,8 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.distributed as dist
 import torchvision.transforms as T
 import torchvision.transforms.functional as TF
+import os
+import json
 # from utils.lr_scheduler import PolyLR
 
 
@@ -138,6 +140,21 @@ def train(
         val_dataloader = data_loader.get_ijmond_seg_dataloader_validation(
             val_idx, split='train', batch_size=batch_size, shuffle=True, rank=local_rank, world_size=dist.get_world_size()
         )
+
+        if local_rank == 0:
+            splits_dir = 'data/IJMOND_SEG/cropped/splits'
+            os.makedirs(splits_dir, exist_ok=True)
+
+            split_info = {
+                "supervised loss": supervised_loss,
+                "contrastive loss": contrastive_loss,
+                "train_idx": train_idx.tolist(),
+                "val_idx": val_idx.tolist()
+            }
+            split_filename = os.path.join(splits_dir, f'trainval_split_fold_{fold + 1}.json')
+            if local_rank == 0:
+                with open(split_filename, 'w') as f:
+                    json.dump(split_info, f)
 
         # iters_per_epoch = len(train_dataloader) + len(unlabeled_dataloader)
         # scheduler = PolyLR(optimizer, num_epochs=num_epochs, iters_per_epoch=iters_per_epoch)
@@ -272,6 +289,13 @@ def train(
                             conf1 = pseudo_logits1[:, o_top:o_bottom, o_left:o_right].reshape(-1)
                             conf2 = pseudo_logits2[:, o2_top:o2_bottom, o2_left:o2_right].reshape(-1)
 
+                        pseudo_labels_resized = F.interpolate(
+                            pseudo_labels.unsqueeze(1).float(),  # Add channel dim: [B, 1, H, W]
+                            size=logits1.shape[2:],  # Match spatial size of logits
+                            mode='nearest'  # Prevent class value distortion
+                        ).squeeze(1).long()  # Back to [B, H, W]
+                        dummy_ce = F.cross_entropy(logits1.detach(), pseudo_labels_resized.detach(), ignore_index=255)
+
                         # === ✅ SKIP CONDITION 2: Invalid overlap after scaling ===
                         skip_flag = torch.tensor(
                             int((o_bottom - o_top <= 0) or (o_right - o_left <= 0)),
@@ -303,8 +327,6 @@ def train(
                         b, c, h, w = output_feat1.shape
                         output_feat1 = output_feat1.permute(0, 2, 3, 1).reshape(b * h * w, c)
                         output_feat2 = output_feat2.permute(0, 2, 3, 1).reshape(b * h * w, c)
-
-                        dummy_ce = F.cross_entropy(logits1.detach(), pseudo_label1.detach(), ignore_index=255)
 
                         # === ✅ SKIP CONDITION 4: Empty features ===
                         skip_flag = torch.tensor(
