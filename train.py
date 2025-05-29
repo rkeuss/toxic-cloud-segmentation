@@ -7,7 +7,7 @@ from models import deeplabv3plus
 from utils import data_loader
 from utils import pseudo_labeling
 from utils import losses
-from sklearn.model_selection import KFold
+from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import jaccard_score
 import csv
 from copy import deepcopy
@@ -38,6 +38,19 @@ def safe_skip_batch(device, optimizer):
     dummy_loss.backward()
     optimizer.step()
     optimizer.zero_grad()
+
+def get_labels(train_dataset):
+    labels = []
+    for img_id in train_dataset.imgIds:
+        ann_ids = train_dataset.coco.getAnnIds(imgIds=img_id)
+        anns = train_dataset.coco.loadAnns(ann_ids)
+        label = 0  # Default to 'none'
+        for ann in anns:
+            if train_dataset.category_mapping[ann['category_id']] == 1:  # Check if 'smoke'
+                label = 1
+                break
+        labels.append(label)
+    return labels
 
 def synchronized_pseudo_batches(pseudo_labeler, dataloader, device, batch_size):
     local_iter = iter(pseudo_labeler(dataloader))
@@ -122,7 +135,15 @@ def train(
         world_size=dist.get_world_size()
     )
 
-    kf = KFold(n_splits=num_folds, shuffle=True, random_state=42)
+    if dist.get_rank() == 0:
+        labels = get_labels(train_dataset)
+        labels_tensor = torch.tensor(labels, dtype=torch.int64)
+    else:
+        labels_tensor = torch.empty(len(train_dataset.imgIds), dtype=torch.int64)
+
+    dist.broadcast(labels_tensor, src=0)
+    labels = labels_tensor.tolist()
+    kf = StratifiedKFold(n_splits=num_folds, shuffle=True, random_state=42)
     best_model_path = f'models/best_model_{supervised_loss}_{contrastive_loss}.pth'
     best_miou = 0.0
 
@@ -133,7 +154,7 @@ def train(
             writer = csv.writer(f)
             writer.writerow(["fold", "epoch", "supervised_loss", "semi_supervised_loss"])
 
-    for fold, (train_idx, val_idx) in enumerate(kf.split(range(train_dataset_size))):
+    for fold, (train_idx, val_idx) in enumerate(kf.split(range(train_dataset_size), labels)):
         train_dataloader = data_loader.get_ijmond_seg_dataloader_train(
             train_idx, split='train', batch_size=batch_size, shuffle=True, rank=local_rank, world_size=dist.get_world_size()
         )
@@ -180,7 +201,7 @@ def train(
 
             semi_supervised_loss = 0
             pseudo_batches_count = 0
-            if epoch > 10 and epoch % 2 == 0:
+            if epoch >= 10 and epoch % 2 == 0:
                 pseudo_labeler = pseudo_labeling.PseudoLabelGenerator(
                     teacher_model=teacher_model,
                     threshold=threshold,

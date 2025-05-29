@@ -1,5 +1,4 @@
 import os
-import torch
 import numpy as np
 import cv2
 from pycocotools.coco import COCO
@@ -95,7 +94,10 @@ def get_ijmond_seg_dataloader_train(train_idx, split, batch_size, shuffle=True, 
 
     # Weak data augmentation for training
     train_transform = A.Compose([
-        A.Resize(640, 640, interpolation=cv2.INTER_LINEAR),  # for images
+        # images are already cropped to 640x640, but to ensure consistency
+        A.PadIfNeeded(min_height=640, min_width=640, border_mode=cv2.BORDER_CONSTANT),  # Pad smaller images
+        A.CenterCrop(height=640, width=640), # Crop larger images to 640x640
+
         A.HorizontalFlip(p=0.5),
         A.Rotate(limit=10, p=0.5),  # Random rotation within 10°
         A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
@@ -118,7 +120,7 @@ def get_ijmond_seg_dataloader_validation(val_idx, split, batch_size, shuffle=Tru
 
     # For test/validation, no augmentation
     val_transform = A.Compose([
-        A.Resize(640, 640),
+        A.Resize(640, 640),  # images are already cropped to 640x640, but to ensure consistency
         A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
         ToTensorV2(),
     ])
@@ -158,7 +160,9 @@ class UnlabelledDataset(Dataset):
 def get_unlabelled_dataloader(image_dirs, batch_size, shuffle=True, rank=0, world_size=1):
     # Strong data augmentation for unlabeled data
     strong_transform = A.Compose([
-        A.Resize(640, 640),
+        A.PadIfNeeded(min_height=640, min_width=640, border_mode=cv2.BORDER_CONSTANT),  # Pad smaller images with black border
+        A.CenterCrop(height=640, width=640),  # Crop larger images to 640x640
+
         A.HorizontalFlip(p=0.5),
         A.Rotate(limit=10, p=0.5),  # Random rotation within 10°
         A.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4, hue=0.2, p=0.7),

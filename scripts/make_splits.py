@@ -2,11 +2,25 @@ import json
 import os
 from sklearn.model_selection import train_test_split
 
+# stratified train-test split applied to ensure that it maintains the class distribution across both sets.
+
 def split_coco_annotations(coco_json_path, output_dir, train_size=0.8, random_state=42):
     with open(coco_json_path, 'r') as f:
         coco_data = json.load(f)
-    image_ids = [img['id'] for img in coco_data['images']]
-    train_ids, test_ids = train_test_split(image_ids, train_size=train_size, random_state=random_state)
+
+    # Map image IDs to their corresponding category IDs
+    image_to_category = {}
+    for ann in coco_data['annotations']:
+        image_id = ann['image_id']
+        category_id = ann['category_id']
+        if image_id not in image_to_category:
+            image_to_category[image_id] = []
+        image_to_category[image_id].append(category_id)
+
+    # Use the most frequent category for stratification
+    image_ids = list(image_to_category.keys())
+    labels = [max(set(categories), key=categories.count) for categories in image_to_category.values()]
+    train_ids, test_ids = train_test_split(image_ids, train_size=train_size, random_state=random_state, stratify=labels)
 
     def filter_data(image_ids):
         images = [img for img in coco_data['images'] if img['id'] in image_ids]
@@ -29,7 +43,7 @@ def split_coco_annotations(coco_json_path, output_dir, train_size=0.8, random_st
     with open(test_json_path, 'w') as f:
         json.dump(test_data, f)
 
-    print(f"Train and test splits saved to {output_dir}")
+    print(f"Stratified train and test splits saved to {output_dir}")
 
 coco_json_path = os.path.abspath('../data/IJMOND_SEG/cropped/cropped_annotations.json')
 output_dir = '../data/IJMOND_SEG/cropped/splits'
