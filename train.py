@@ -462,6 +462,11 @@ def train(
             best_miou = avg_iou
             torch.save(student_model.state_dict(), best_model_path)
             print(f"Best model saved with mIoU: {best_miou:.4f}")
+        elif fold == num_folds-1 and local_rank == 0 and best_miou == 0:
+            # no model has been saved yet, because of low performance (miou=0) to be able to do testing, save last model.
+            torch.save(student_model.state_dict(), best_model_path)
+            print("No best model detected, so last model is saved.")
+
     dist.destroy_process_group()
 
 if __name__ == "__main__":
