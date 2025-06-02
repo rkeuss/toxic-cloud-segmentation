@@ -137,12 +137,25 @@ def train(
 
     if dist.get_rank() == 0:
         labels = get_labels(train_dataset)
-        labels_tensor = torch.tensor(labels, dtype=torch.int64)
+        num_samples = len(labels)
     else:
-        labels_tensor = torch.empty(len(train_dataset.imgIds), dtype=torch.int64)
+        num_samples = 0
 
+    # Broadcast num_samples to all ranks
+    num_samples_tensor = torch.tensor([num_samples], dtype=torch.int64, device=device)
+    dist.broadcast(num_samples_tensor, src=0)
+    num_samples = num_samples_tensor.item()
+
+    # Now all ranks create the same-sized tensor
+    if dist.get_rank() == 0:
+        labels_tensor = torch.tensor(labels, dtype=torch.int64, device=device)
+    else:
+        labels_tensor = torch.empty(num_samples, dtype=torch.int64, device=device)
+
+    # Safe broadcast
     dist.broadcast(labels_tensor, src=0)
     labels = labels_tensor.tolist()
+
     kf = StratifiedKFold(n_splits=num_folds, shuffle=True, random_state=42)
     best_model_path = f'models/best_model_{supervised_loss}_{contrastive_loss}.pth'
     best_miou = 0.0
@@ -155,6 +168,16 @@ def train(
             writer.writerow(["fold", "epoch", "supervised_loss", "semi_supervised_loss"])
 
     for fold, (train_idx, val_idx) in enumerate(kf.split(range(train_dataset_size), labels)):
+        if local_rank == 0:
+            csv_file = 'data/IJMOND_SEG/cropped/splits/validation_splits.csv'
+            file_exists = os.path.isfile(csv_file)
+
+            with open(csv_file, mode='a', newline='') as f:
+                writer = csv.writer(f)
+                if not file_exists:
+                    writer.writerow(["supervised_loss", "contrastive_loss", "train_idx", "val_idx"])
+                writer.writerow([supervised_loss, contrastive_loss, train_idx, val_idx])
+
         train_dataloader = data_loader.get_ijmond_seg_dataloader_train(
             train_idx, split='train', batch_size=batch_size, shuffle=True, rank=local_rank, world_size=dist.get_world_size()
         )
