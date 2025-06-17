@@ -1,4 +1,5 @@
-import argparse
+from collections import defaultdict
+import json
 import torch
 import torch.nn.functional as F
 from models.deeplabv3plus import resnet101_deeplabv3plus_imagenet
@@ -8,8 +9,40 @@ import numpy as np
 import csv
 import os
 import time
-import torch.distributed as dist
 import torchvision.transforms as T
+
+def group_images_by_opacity(annotation_json_path, valid_image_ids):
+    with open(annotation_json_path, 'r') as f:
+        data = json.load(f)
+
+    image_id_to_opacity = defaultdict(set)
+    for ann in data['annotations']:
+        image_id = ann['image_id']
+        if image_id not in valid_image_ids:
+            continue
+        category_id = ann['category_id']
+        image_id_to_opacity[image_id].add(category_id)
+
+    high_opacity_ids = set()
+    low_opacity_ids = set()
+
+    for image_id, categories in image_id_to_opacity.items():
+        if 1 in categories and 2 not in categories:
+            high_opacity_ids.add(image_id)
+        elif 2 in categories and 1 not in categories:
+            low_opacity_ids.add(image_id)
+
+    return high_opacity_ids, low_opacity_ids
+
+
+def get_dataloader_by_image_ids(dataset, image_ids, batch_size):
+    index_subset = [
+        i for i, img_info in enumerate(dataset.coco.dataset['images'])
+        if img_info['id'] in image_ids
+    ]
+    return get_ijmond_seg_dataloader_validation(
+        index_subset, split='test', batch_size=batch_size, shuffle=False
+    )
 
 def dice_coefficient(pred, target, epsilon=1e-6):
     """
@@ -114,23 +147,20 @@ def evaluate_model(model, dataloader, device):
 
 
 def test(supervised_loss, contrastive_loss):
-    dist.init_process_group(backend="nccl")
-    torch.cuda.set_device(dist.get_rank() % torch.cuda.device_count())
-    rank = dist.get_rank()
-    world_size = dist.get_world_size()
-    device = torch.device(f"cuda:{rank % torch.cuda.device_count()}" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cpu")
 
     test_dataset = get_ijmond_seg_dataset('data/IJMOND_SEG/cropped', split='test')
-    test_idx = list(range(len(test_dataset)))
-    test_dataloader = get_ijmond_seg_dataloader_validation(
-        test_idx, split='test', batch_size=8, shuffle=False, rank=rank, world_size=world_size
-    )
+    high_opacity_ids, low_opacity_ids = group_images_by_opacity("data/IJMOND_SEG/cropped/cropped_annotations.json")
 
-    model = resnet101_deeplabv3plus_imagenet(num_classes=2, pretrained=False)
-    checkpoint_path = f'models/best_model_{supervised_loss}_{contrastive_loss}.pth'
+    # Get dataloaders for each group
+    high_dataloader = get_dataloader_by_image_ids(test_dataset, high_opacity_ids, 8)
+    low_dataloader = get_dataloader_by_image_ids(test_dataset, low_opacity_ids, 8)
+
     try:
-        state_dict = torch.load(checkpoint_path, map_location=device)
+        model = resnet101_deeplabv3plus_imagenet(num_classes=2, pretrained=False)
+        checkpoint_path = f'/Users/rkeuss/PycharmProjects/toxic-cloud-segmentation/models/best_model_{supervised_loss}_{contrastive_loss}.pth'
 
+        state_dict = torch.load(checkpoint_path, map_location=device)
         # Handle DataParallel or DDP "module." prefix
         if any(k.startswith('module.') for k in state_dict.keys()):
             from collections import OrderedDict
@@ -138,7 +168,6 @@ def test(supervised_loss, contrastive_loss):
             for k, v in state_dict.items():
                 new_state_dict[k.replace('module.', '')] = v
             state_dict = new_state_dict
-
         model.load_state_dict(state_dict)
     except FileNotFoundError:
         print(f"Error: Best model file not found: {checkpoint_path}")
@@ -148,25 +177,36 @@ def test(supervised_loss, contrastive_loss):
         exit(1)
 
     model = model.to(device)
-    avg_dice, avg_iou, avg_miou_p, avg_inference_time = evaluate_model(model, test_dataloader, device)
+
+    print("Evaluating on high-opacity smoke...")
+    avg_dice_high, avg_iou_high, avg_miou_p_high, avg_inference_time_high = evaluate_model(model, high_dataloader, device)
+    print("\nEvaluating on low-opacity smoke...")
+    avg_dice_low, avg_iou_low, avg_miou_p_low, avg_inference_time_low = evaluate_model(model, low_dataloader, device)
 
     # Save to CSV
-    csv_file = "evaluation_results.csv"
+    csv_file = "evaluation_results_opacity.csv"
     file_exists = os.path.isfile(csv_file)
 
     with open(csv_file, mode='a', newline='') as f:
         writer = csv.writer(f)
         if not file_exists:
-            writer.writerow(["supervised_loss", "contrastive_loss", "dice", "iou", "miou_p", "inference_time"])
-        writer.writerow([supervised_loss, contrastive_loss, avg_dice, avg_iou, avg_miou_p, avg_inference_time])
+            writer.writerow(
+                ["supervised_loss", "contrastive_loss", "dice_high", "dice_low",
+                 "miou_high", "miou_low", "miou_p_high", "miou_p_low",
+                 "inference_time_high", "inference_time_low"
+                 ])
+        writer.writerow([
+            supervised_loss, contrastive_loss, avg_dice_high, avg_dice_low,
+            avg_iou_high, avg_iou_low, avg_miou_p_high, avg_miou_p_low,
+            avg_inference_time_high, avg_inference_time_low
+        ])
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--supervised_loss", type=str, default="cross_entropy")
-    parser.add_argument("--contrastive_loss", type=str, default="pixel")
-    args = parser.parse_args()
-    test(
-        supervised_loss=args.supervised_loss,
-        contrastive_loss=args.contrastive_loss
-    )
+    for supervised_loss in ["cross_entropy", "dice"]:
+        for contrastive_loss in ["pixel", "local", "directional", "hybrid"]:
+            print(f"Testing with supervised_loss={supervised_loss}, contrastive_loss={contrastive_loss}")
+            test(
+                supervised_loss=supervised_loss,
+                contrastive_loss=contrastive_loss
+            )
